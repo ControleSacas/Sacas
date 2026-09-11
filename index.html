@@ -70,7 +70,7 @@
     -webkit-font-smoothing: antialiased;
   }
   button { font: inherit; cursor: pointer; }
-  input, select { font: inherit; color: inherit; }
+  input, select, textarea { font: inherit; color: inherit; }
   p { text-wrap: pretty; }
 
   .app {
@@ -161,7 +161,7 @@
   .field > label { display: block; font-size: .74rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 7px; }
   .field .sub { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink-faint); }
   .input {
-    width: 100%; background: var(--surface-2); border: 1.5px solid var(--line-strong); border-radius: 10px;
+    width: 100%; background: var(--surface-2); color: var(--ink); border: 1.5px solid var(--line-strong); border-radius: 10px;
     padding: 13px 13px; font-size: 1rem; transition: border-color .12s, background .12s;
   }
   .input:focus { outline: none; border-color: var(--accent); background: var(--surface); }

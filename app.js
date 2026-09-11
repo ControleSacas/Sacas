@@ -830,6 +830,11 @@
     head.closest(".report-driver").classList.toggle("open");
   });
 
+  /* ================= PWA (instalar no celular) ================= */
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  }
+
   /* ================= INIT / POLLING ================= */
   async function renderAll() {
     var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas(), fetchTodayAusentes()]);

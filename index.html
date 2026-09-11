@@ -259,12 +259,15 @@
 
   /* ---------- Histórico: tabela ---------- */
   .hist-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
-  .hist-table { width: 100%; border-collapse: collapse; font-size: .82rem; white-space: nowrap; }
-  .hist-table th, .hist-table td { padding: 10px 12px; text-align: left; }
-  .hist-table thead th { background: var(--surface-2); font-size: .64rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); font-weight: 700; border-bottom: 1px solid var(--line); }
+  .hist-table { width: 100%; border-collapse: collapse; font-size: .78rem; white-space: nowrap; }
+  .hist-table th, .hist-table td { padding: 8px 7px; text-align: left; }
+  .hist-table thead th { background: var(--surface-2); font-size: .58rem; text-transform: uppercase; letter-spacing: .02em; color: var(--ink-soft); font-weight: 700; border-bottom: 1px solid var(--line); }
   .hist-table tbody tr { border-bottom: 1px solid var(--line); }
   .hist-table tbody tr:last-child { border-bottom: 0; }
-  .hist-actions { display: flex; gap: 4px; }
+  .hist-table .chip { padding: 2px 6px; font-size: .6rem; }
+  .hist-actions { display: flex; gap: 2px; }
+  .hist-actions .icon-mini { width: 24px; height: 24px; }
+  .hist-actions .icon-mini svg { width: 13px; height: 13px; }
   .hist-edit-row[hidden] { display: none; }
   .hist-edit-row td { background: var(--surface-2); }
   .hist-edit-panel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; white-space: normal; }

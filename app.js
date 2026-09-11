@@ -581,7 +581,7 @@
     if (!all.length) { wrap.innerHTML = '<div class="empty">Nada registrado hoje ainda.</div>'; return; }
     var rows = all.map(historicoRowHTML).join("");
     wrap.innerHTML = '<div class="hist-table-wrap"><table class="hist-table"><thead><tr>' +
-      "<th>Motorista</th><th>Saca</th><th>Pacotes que faltou</th><th>Status</th><th>Ações</th>" +
+      "<th>Motorista</th><th>Saca</th><th>PCT que faltou</th><th>Status</th><th>Ações</th>" +
       "</tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 

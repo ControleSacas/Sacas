@@ -835,6 +835,46 @@
     navigator.serviceWorker.register("sw.js").catch(function () {});
   }
 
+  (function setupInstallButton() {
+    var installBtn = document.getElementById("installBtn");
+    var iosHint = document.getElementById("installIosHint");
+    var deferredPrompt = null;
+
+    function isStandalone() {
+      return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    }
+    function isIOS() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    }
+
+    if (isStandalone()) return; // já instalado, não precisa do botão
+
+    if (isIOS()) installBtn.hidden = false;
+
+    window.addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.hidden = false;
+    });
+
+    window.addEventListener("appinstalled", function () {
+      installBtn.hidden = true;
+      iosHint.hidden = true;
+      deferredPrompt = null;
+    });
+
+    installBtn.addEventListener("click", async function () {
+      if (deferredPrompt) {
+        var p = deferredPrompt;
+        deferredPrompt = null;
+        p.prompt();
+        try { await p.userChoice; } catch (e) {}
+        return;
+      }
+      iosHint.hidden = !iosHint.hidden;
+    });
+  })();
+
   /* ================= INIT / POLLING ================= */
   async function renderAll() {
     var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas(), fetchTodayAusentes()]);

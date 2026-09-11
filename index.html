@@ -264,6 +264,15 @@
   .hist-table thead th { background: var(--surface-2); font-size: .64rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); font-weight: 700; border-bottom: 1px solid var(--line); }
   .hist-table tbody tr { border-bottom: 1px solid var(--line); }
   .hist-table tbody tr:last-child { border-bottom: 0; }
+  .hist-actions { display: flex; gap: 4px; }
+  .hist-edit-row[hidden] { display: none; }
+  .hist-edit-row td { background: var(--surface-2); }
+  .hist-edit-panel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; white-space: normal; }
+  .hist-edit-panel .input { width: auto; }
+  .hist-edit-panel .ed-nome { flex: 1 1 150px; min-width: 130px; }
+  .hist-edit-panel .ed-status { flex: 0 0 122px; }
+  .hist-edit-panel .ed-saca { flex: 0 0 60px; text-align: center; font-family: "IBM Plex Mono", monospace; }
+  .hist-edit-panel .ed-qtd { flex: 0 0 52px; text-align: center; }
 
   .pilltabs { display: flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px; padding: 4px; gap: 4px; margin-bottom: 14px; }
   .pilltabs button { flex: 1; border: 0; background: none; padding: 9px 6px; border-radius: 8px; font-size: .8rem; font-weight: 600; color: var(--ink-soft); }

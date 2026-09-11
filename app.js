@@ -579,21 +579,118 @@
     var all = state.liberadas.concat(state.recusadas, state.ausentes)
       .sort(function (a, b) { return new Date(b.ts_resolvido) - new Date(a.ts_resolvido); });
     if (!all.length) { wrap.innerHTML = '<div class="empty">Nada registrado hoje ainda.</div>'; return; }
-    var rows = all.map(function (r) {
-      var pacotes = r.faltantes && r.faltantes.length
-        ? r.faltantes.map(function (f) { return esc(f.codigo) + " ×" + f.qtd; }).join(", ")
-        : "—";
-      return "<tr>" +
-        "<td>" + esc(r.motorista) + "</td>" +
-        "<td>" + (r.saca ? esc(r.saca) : "—") + "</td>" +
-        "<td>" + pacotes + "</td>" +
-        '<td><span class="chip ' + STATUS_CLASS[r.status] + '">' + STATUS_LABEL[r.status] + "</span></td>" +
-      "</tr>";
-    }).join("");
+    var rows = all.map(historicoRowHTML).join("");
     wrap.innerHTML = '<div class="hist-table-wrap"><table class="hist-table"><thead><tr>' +
-      "<th>Motorista</th><th>Saca</th><th>Pacotes que faltou</th><th>Status</th>" +
+      "<th>Motorista</th><th>Saca</th><th>Pacotes que faltou</th><th>Status</th><th>Ações</th>" +
       "</tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
+
+  function historicoRowHTML(r) {
+    var pacotes = r.faltantes && r.faltantes.length
+      ? r.faltantes.map(function (f) { return esc(f.codigo) + " ×" + f.qtd; }).join(", ")
+      : "—";
+    var edQtd = r.faltantes && r.faltantes.length ? r.faltantes[0].qtd : "";
+    var edCodigo = r.faltantes && r.faltantes.length ? String(r.faltantes[0].codigo).replace(/^NX/i, "") : "";
+    return "<tr>" +
+      "<td>" + esc(r.motorista) + "</td>" +
+      "<td>" + (r.saca ? esc(r.saca) : "—") + "</td>" +
+      "<td>" + pacotes + "</td>" +
+      '<td><span class="chip ' + STATUS_CLASS[r.status] + '">' + STATUS_LABEL[r.status] + "</span></td>" +
+      '<td class="hist-actions">' +
+        '<button type="button" class="icon-mini" data-hist-edit="' + r.id + '" aria-label="editar">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>' +
+        "</button>" +
+        '<button type="button" class="icon-mini" data-hist-del="' + r.id + '" aria-label="excluir">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>' +
+        "</button>" +
+      "</td>" +
+    "</tr>" +
+    '<tr class="hist-edit-row" data-edit-for="' + r.id + '" hidden><td colspan="5">' +
+      '<div class="hist-edit-panel">' +
+        '<input class="input ed-nome" value="' + esc(r.motorista) + '" placeholder="Nome">' +
+        '<select class="input ed-status">' +
+          '<option value="levou"' + (r.status === "levou" ? " selected" : "") + '>Liberado</option>' +
+          '<option value="recusou"' + (r.status === "recusou" ? " selected" : "") + '>Recusado</option>' +
+          '<option value="ausente"' + (r.status === "ausente" ? " selected" : "") + '>Ausente</option>' +
+        "</select>" +
+        '<input class="input ed-saca" placeholder="Saca" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + (r.saca ? esc(r.saca) : "") + '">' +
+        '<input class="input qtd ed-qtd" placeholder="Qtd" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + esc(edQtd) + '">' +
+        '<div class="code-wrap"><b>NX</b><input class="mcode ed-codigo" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="número" value="' + esc(edCodigo) + '"></div>' +
+        '<button type="button" class="btn-primary ed-save" data-hist-save="' + r.id + '">Salvar</button>' +
+      "</div>" +
+    "</td></tr>";
+  }
+
+  function updateHistEditVisibility(panel, status) {
+    panel.querySelector(".ed-saca").style.display = status === "ausente" ? "none" : "";
+    panel.querySelector(".ed-qtd").style.display = status === "levou" ? "" : "none";
+    panel.querySelector(".code-wrap").style.display = status === "levou" ? "" : "none";
+  }
+
+  document.getElementById("historicoList").addEventListener("change", function (e) {
+    if (!e.target.classList.contains("ed-status")) return;
+    updateHistEditVisibility(e.target.closest(".hist-edit-panel"), e.target.value);
+  });
+
+  document.getElementById("historicoList").addEventListener("input", function (e) {
+    if (e.target.classList.contains("ed-saca") || e.target.classList.contains("ed-qtd")) {
+      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 3);
+    } else if (e.target.classList.contains("ed-codigo")) {
+      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 8);
+    }
+  });
+
+  document.getElementById("historicoList").addEventListener("click", async function (e) {
+    var editBtn = e.target.closest("[data-hist-edit]");
+    if (editBtn) {
+      var editRow = document.querySelector('.hist-edit-row[data-edit-for="' + editBtn.getAttribute("data-hist-edit") + '"]');
+      editRow.hidden = !editRow.hidden;
+      if (!editRow.hidden) {
+        var panel = editRow.querySelector(".hist-edit-panel");
+        updateHistEditVisibility(panel, panel.querySelector(".ed-status").value);
+      }
+      return;
+    }
+    var saveBtn = e.target.closest("[data-hist-save]");
+    if (saveBtn) {
+      var panel2 = saveBtn.closest(".hist-edit-panel");
+      var nome = panel2.querySelector(".ed-nome").value.trim();
+      var status = panel2.querySelector(".ed-status").value;
+      if (!nome) { toast("Nome não pode ficar vazio"); return; }
+      var payload = { motorista: nome, status: status };
+      if (status === "ausente") {
+        payload.saca = null;
+        payload.faltantes = [];
+      } else {
+        var sacaNum = normSaca(panel2.querySelector(".ed-saca").value.trim());
+        if (sacaNum === null || sacaNum < 1 || sacaNum > 999) { toast("Saca inválida (1 a 999)"); return; }
+        payload.saca = sacaNum;
+        if (status === "levou") {
+          var qtd = parseInt(panel2.querySelector(".ed-qtd").value, 10);
+          var codigo = panel2.querySelector(".ed-codigo").value.trim().replace(/\D/g, "");
+          payload.faltantes = (qtd > 0 || codigo) ? [{ qtd: qtd > 0 ? qtd : 1, codigo: "NX" + codigo }] : [];
+        } else {
+          payload.faltantes = [];
+        }
+      }
+      saveBtn.disabled = true;
+      var { error } = await sb.from("registros").update(payload).eq("id", saveBtn.getAttribute("data-hist-save"));
+      saveBtn.disabled = false;
+      if (error) { dbError(error); return; }
+      await renderAll();
+      toast("Registro atualizado");
+      return;
+    }
+    var delBtn = e.target.closest("[data-hist-del]");
+    if (delBtn) {
+      var delId = delBtn.getAttribute("data-hist-del");
+      showConfirm("Excluir este registro do histórico de hoje?", true, async function () {
+        var { error } = await sb.from("registros").delete().eq("id", delId);
+        if (error) { dbError(error); return; }
+        await renderAll();
+      });
+    }
+  });
 
   /* ================= STAT BAR ================= */
   function renderStats() {

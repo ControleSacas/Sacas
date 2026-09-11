@@ -568,7 +568,7 @@
       }
       return '<div class="roster-row" data-id="' + it.id + '">' +
         '<div class="r-left"><span class="r-name">' + esc(it.nome) + '</span>' +
-          '<span class="r-meta"><span class="src">' + (it.fonte === "excel" ? "planilha" : "manual") + '</span></span></div>' +
+          '<span class="r-meta"><span class="src">' + (it.fonte === "excel" ? "colado" : "manual") + '</span></span></div>' +
         '<div class="r-right">' + actionHTML + pillHTML +
           '<button class="r-del" data-del="' + it.id + '" aria-label="remover">&times;</button></div>' +
       "</div>";
@@ -598,90 +598,29 @@
     }
   });
 
-  /* ---------- file reading: xlsx/csv/txt/docx/doc — scan for proper names ---------- */
-  function fileToText(file) {
-    var ext = (file.name.split(".").pop() || "").toLowerCase();
-    return new Promise(function (resolve, reject) {
-      if (ext === "xlsx" || ext === "xls") {
-        var r1 = new FileReader();
-        r1.onload = function (e) {
-          try {
-            var wb = XLSX.read(e.target.result, { type: "binary" });
-            var txt = wb.SheetNames.map(function (n) { return XLSX.utils.sheet_to_csv(wb.Sheets[n]); }).join("\n");
-            resolve(txt);
-          } catch (err) { reject(err); }
-        };
-        r1.onerror = reject;
-        r1.readAsBinaryString(file);
-      } else if (ext === "docx") {
-        var r2 = new FileReader();
-        r2.onload = function (e) {
-          JSZip.loadAsync(e.target.result).then(function (zip) {
-            var doc = zip.file("word/document.xml");
-            return doc ? doc.async("string") : "";
-          }).then(function (xml) {
-            resolve(String(xml || "").replace(/<[^>]+>/g, " "));
-          }).catch(reject);
-        };
-        r2.onerror = reject;
-        r2.readAsArrayBuffer(file);
-      } else {
-        var r3 = new FileReader();
-        r3.onload = function (e) { resolve(String(e.target.result || "")); };
-        r3.onerror = reject;
-        r3.readAsText(file);
-      }
-    });
+  /* ---------- lista colada: um nome de motorista por linha ---------- */
+  function parsePastedNames(text) {
+    return (text || "")
+      .split(/\r?\n/)
+      .map(function (line) { return line.replace(/^\s*[-•*\d]+[.)]?\s*/, "").trim(); })
+      .filter(function (line) { return line.length > 1; });
   }
 
-  var STOP_WORDS = ["lista", "motorista", "motoristas", "nome", "nomes", "saca", "sacas", "planilha",
-    "relatorio", "relatório", "diario", "diária", "empresa", "endereco", "endereço", "total", "geral",
-    "resumo", "periodo", "período", "pagina", "página", "data", "sheet", "folha", "arquivo", "documento",
-    "observacoes", "observações", "quantidade", "codigo", "código", "assinatura", "recebido",
-    "entregador", "rota", "veiculo", "veículo", "placa", "horario", "horário", "segunda", "terça",
-    "quarta", "quinta", "sexta", "sabado", "sábado", "domingo", "feira", "janeiro", "fevereiro",
-    "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-  var STOP_SET = {};
-  STOP_WORDS.forEach(function (w) { STOP_SET[w] = true; });
-
-  function extractProperNames(text) {
-    text = (text || "").replace(/[ \t]+/g, " ");
-    var word = "[A-ZÀ-Ý][a-zà-ÿ']+";
-    var conn = "(?:d[ae]s?|do|e)";
-    var re = new RegExp(word + "(?: (?:" + conn + " )?" + word + "){1,3}", "g");
-    var found = text.match(re) || [];
-    var seen = {}, out = [];
-    found.forEach(function (m) {
-      var clean = m.trim().replace(/[ \t]+/g, " ");
-      var words = clean.split(" ");
-      var anyStop = words.some(function (w) { return STOP_SET[w.toLowerCase()]; });
-      if (anyStop) return;
-      var key = clean.toLowerCase();
-      if (seen[key]) return;
-      seen[key] = true;
-      out.push(clean);
-    });
-    return out.slice(0, 300);
-  }
-
-  document.getElementById("fileInput").addEventListener("change", function (e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    toast("Lendo arquivo…");
-    fileToText(file).then(async function (text) {
-      var names = extractProperNames(text);
-      if (!names.length) { toast("Não encontrei nomes nesse arquivo"); return; }
-      var added = 0;
-      for (var i = 0; i < names.length; i++) {
-        await ensureDriverListed(names[i]);
-        if (await ensureRosterListed(names[i], "excel")) added++;
-      }
-      await renderAll();
-      toast(added ? added + " nome(s) importado(s)" : "Nenhum nome novo — já estavam na lista");
-    }).catch(function () {
-      toast("Não consegui ler esse arquivo");
-    });
-    e.target.value = "";
+  document.getElementById("addPasted").addEventListener("click", async function () {
+    var ta = document.getElementById("pasteNames");
+    var names = parsePastedNames(ta.value);
+    if (!names.length) { toast("Cole ao menos um nome"); return; }
+    var btn = this;
+    btn.disabled = true;
+    var added = 0;
+    for (var i = 0; i < names.length; i++) {
+      await ensureDriverListed(names[i]);
+      if (await ensureRosterListed(names[i], "excel")) added++;
+    }
+    btn.disabled = false;
+    ta.value = "";
+    await renderAll();
+    toast(added ? added + " nome(s) adicionado(s)" : "Nenhum nome novo — já estavam na lista");
   });
 
   /* ================= RELATÓRIOS (gestor) ================= */

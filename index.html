@@ -9,8 +9,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="config.js"></script>
 
 <style>
@@ -247,11 +245,7 @@
   .subpanel { display: none; }
   .subpanel.active { display: block; }
 
-  .upload { border: 1.5px dashed var(--line-strong); border-radius: 12px; padding: 16px; text-align: center; background: var(--surface); }
-  .upload p { margin: 8px 0 12px; font-size: .8rem; color: var(--ink-soft); }
-  .upload .fmts { font-size: .68rem; color: var(--ink-faint); margin-top: 10px; }
-  .file-btn { display: inline-block; background: var(--accent); color: var(--accent-ink); border-radius: 10px; padding: 11px 18px; font-weight: 700; font-size: .88rem; font-family: "Archivo", sans-serif; }
-  .file-btn input { display: none; }
+  textarea.input { resize: vertical; min-height: 116px; line-height: 1.5; font-family: inherit; }
 
   .roster-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; }
   .roster-row .r-left { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -429,10 +423,6 @@
         <h1>Recusadas</h1>
         <span class="hint">Sacas que voltam para<br>reoferta</span>
       </div>
-      <p style="font-size:.78rem;color:var(--ink-soft);margin:0 2px 14px">
-        Quando o motorista não quis levar, a saca costuma ser reoferecida no outro aplicativo.
-        Não tem problema o mesmo número aparecer de novo aqui na Fila mais tarde.
-      </p>
       <div id="refusedList"><div class="empty">Carregando…</div></div>
     </section>
 
@@ -443,20 +433,13 @@
         <span class="hint">Motoristas designados hoje</span>
       </div>
 
-      <div class="upload" id="uploadBox">
-        <strong style="font-family:'Archivo',sans-serif;font-size:.95rem">Subir lista de motoristas</strong>
-        <p>Planilha, Word, bloco de notas — o que tiver. A gente varre o arquivo e pesca os nomes automaticamente.</p>
-        <label class="file-btn">
-          Escolher arquivo
-          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.txt,.tsv,.docx,.doc,.rtf">
-        </label>
-        <div class="fmts">Melhor leitura: .xlsx, .csv, .txt e .docx. Em .doc antigo, confira a lista depois.</div>
+      <div class="card">
+        <div class="field" style="margin-bottom:12px">
+          <label for="pasteNames">Colar lista de motoristas</label>
+          <textarea class="input paste-area" id="pasteNames" rows="6" placeholder="Um nome por linha…&#10;Carlos Andrade&#10;Márcia Ribeiro&#10;João Vitor Souza"></textarea>
+        </div>
+        <button type="button" class="btn-primary" id="addPasted">Adicionar à lista</button>
       </div>
-
-      <p style="font-size:.76rem;color:var(--ink-soft);margin:16px 2px 0">
-        Motorista que não veio na planilha? Sem problema — ele entra aqui sozinho assim que for
-        adicionado na Fila.
-      </p>
 
       <div class="log-title" id="rosterCount">Carregando…</div>
       <div id="rosterList"></div>

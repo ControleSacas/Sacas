@@ -5,11 +5,15 @@
 -- fazem nada se a tabela já existir).
 --
 -- Se você já tinha rodado uma versão anterior deste schema, rode só
--- estes dois comandos em vez do arquivo inteiro:
+-- os comandos abaixo em vez do arquivo inteiro:
 --
 --   alter table fila alter column saca drop not null;
 --   drop table if exists roster;  -- não é mais usada (a Lista agora
 --                                  -- insere direto na fila)
+--   alter table registros alter column saca drop not null;
+--   alter table registros drop constraint if exists registros_status_check;
+--   alter table registros add constraint registros_status_check
+--     check (status in ('levou', 'recusou', 'ausente'));
 -- ============================================================
 
 create extension if not exists pgcrypto;
@@ -42,12 +46,13 @@ create table if not exists fila (
   criado_em  timestamptz not null default now()
 );
 
--- ---------- registros: sacas já liberadas ou recusadas ----------
+-- ---------- registros: sacas liberadas, recusadas, ou motoristas ausentes ----------
+-- saca fica nula quando status = 'ausente' (nunca chegou a informar o número)
 create table if not exists registros (
   id            uuid primary key default gen_random_uuid(),
   motorista     text not null,
-  saca          integer not null check (saca between 1 and 999),
-  status        text not null check (status in ('levou', 'recusou')),
+  saca          integer check (saca between 1 and 999),
+  status        text not null check (status in ('levou', 'recusou', 'ausente')),
   faltantes     jsonb not null default '[]'::jsonb,
   dia           date not null,
   ts_fila       timestamptz,

@@ -72,7 +72,7 @@
     return all;
   }
 
-  var state = { fila: [], liberadas: [], recusadas: [], motoristas: [], session: null };
+  var state = { fila: [], liberadas: [], recusadas: [], ausentes: [], motoristas: [], session: null };
 
   /* ================= THEME ================= */
   var SUN_PATH = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>';
@@ -182,13 +182,6 @@
     if (!b) return;
     document.querySelectorAll("#reportPilltabs button").forEach(function (x) { x.classList.toggle("active", x === b); });
     document.querySelectorAll(".subpanel[data-rsub]").forEach(function (p) { p.classList.toggle("active", p.dataset.rsub === b.dataset.rsub); });
-  });
-  document.getElementById("reportLibModeToggle").addEventListener("click", function (e) {
-    var b = e.target.closest("button[data-mode]");
-    if (!b) return;
-    document.querySelectorAll("#reportLibModeToggle button").forEach(function (x) { x.classList.toggle("active", x === b); });
-    reportLibMode = b.dataset.mode;
-    renderReportLiberadas();
   });
 
   /* ================= DRIVER MEMORY ================= */
@@ -371,8 +364,13 @@
       var it2 = state.fila.find(function (f) { return f.id === absentId; });
       if (!it2) return;
       showConfirm('Marcar "' + it2.motorista + '" como ausente? Ele sai da fila.', true, async function () {
-        var { error } = await sb.from("fila").delete().eq("id", absentId);
-        if (error) { dbError(error); return; }
+        var { error: delErr } = await sb.from("fila").delete().eq("id", absentId);
+        if (delErr) { dbError(delErr); return; }
+        var { error: insErr } = await sb.from("registros").insert({
+          motorista: it2.motorista, saca: null, status: "ausente", faltantes: [],
+          dia: it2.dia, ts_fila: it2.criado_em, ts_resolvido: new Date().toISOString()
+        });
+        if (insErr) dbError(insErr);
         await renderAll();
         toast(it2.motorista + " marcado como ausente");
       });
@@ -415,14 +413,6 @@
   /* ================= RENDER: RESOLVE (Liberar tab) ================= */
   var resolveList = document.getElementById("resolveList");
   var resolveSearch = document.getElementById("resolveSearch");
-
-  function missRowHTML() {
-    return '<div class="miss-row">' +
-      '<input class="input qtd" inputmode="numeric" pattern="[0-9]*" placeholder="Qtd" maxlength="3">' +
-      '<div class="code-wrap"><b>NX</b><input class="mcode" inputmode="numeric" pattern="[0-9]*" placeholder="número" maxlength="8"></div>' +
-      '<button type="button" class="del" aria-label="remover">&times;</button>' +
-    "</div>";
-  }
 
   function renderResolve() {
     var q = resolveSearch.value.trim().toLowerCase();
@@ -491,92 +481,118 @@
       wrap.innerHTML = '<div class="empty">' + (all.length ? "Nada encontrado para essa busca." : "Nenhuma liberação ainda hoje.") + "</div>";
       return;
     }
-    wrap.innerHTML = items.map(function (r) { return entryHTML(r, true); }).join("");
+    wrap.innerHTML = items.map(entryCompactHTML).join("");
   }
   liberadasSearch.addEventListener("input", renderLiberadas);
 
-  function entryHTML(r, editable) {
-    var chip = r.status === "levou" ? '<span class="chip ok">Levou</span>' : '<span class="chip no">Recusou</span>';
-    var miss = r.faltantes && r.faltantes.length
-      ? '<div class="miss-tags">' + r.faltantes.map(function (fx) { return '<span class="miss-tag">' + esc(fx.codigo) + " ×" + fx.qtd + "</span>"; }).join("") + "</div>"
+  function entryCompactHTML(r) {
+    var missTag = r.faltantes && r.faltantes.length
+      ? '<span class="miss-tag">' + esc(r.faltantes[0].codigo) + " ×" + r.faltantes[0].qtd + "</span>"
       : "";
-    var report = "";
-    if (editable && r.status === "levou") {
-      var linkLabel = r.faltantes && r.faltantes.length ? "+ reportar outro pacote" : "+ pacote faltante";
-      report = '<button type="button" class="link-btn miss-link">' + linkLabel + "</button>" +
-        '<div class="miss-box"><div class="missRowsInline"></div>' +
-          '<button type="button" class="link-btn add-miss-inline">+ adicionar outro código</button>' +
-          '<button type="button" class="btn-ghost save-miss" style="margin-top:10px">Salvar pacote faltante</button>' +
-        "</div>";
-    }
-    return '<div class="entry" data-id="' + r.id + '">' +
-      '<div class="tag">' + esc(r.saca) + "</div>" +
-      '<div class="who"><b>' + esc(r.motorista) + "</b>" +
-        '<div class="meta">' + chip + " · " + fmtTime(r.ts_resolvido) + "</div>" + miss + "</div>" +
-      '<button class="row-del" data-del="' + r.id + '">excluir</button>' +
-      report +
+    var edQtd = r.faltantes && r.faltantes.length ? r.faltantes[0].qtd : "";
+    var edCodigo = r.faltantes && r.faltantes.length ? String(r.faltantes[0].codigo).replace(/^NX/i, "") : "";
+    return '<div class="entry-compact" data-id="' + r.id + '">' +
+      '<div class="ec-main">' +
+        '<div class="tag">' + esc(r.saca) + "</div>" +
+        '<div class="who"><b>' + esc(r.motorista) + "</b>" +
+          '<div class="meta"><span class="chip ok">Levou</span> · ' + fmtTime(r.ts_resolvido) + missTag + "</div></div>" +
+        '<div class="ec-actions">' +
+          '<button type="button" class="icon-mini" data-edit="' + r.id + '" aria-label="editar">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>' +
+          "</button>" +
+          '<button type="button" class="row-del" data-del="' + r.id + '">excluir</button>' +
+        "</div>" +
+      "</div>" +
+      '<div class="edit-panel" hidden>' +
+        '<div class="edit-row">' +
+          '<input class="input ed-nome" value="' + esc(r.motorista) + '" placeholder="Nome do motorista">' +
+          '<input class="input ed-saca" value="' + esc(r.saca) + '" inputmode="numeric" pattern="[0-9]*" maxlength="3">' +
+        "</div>" +
+        '<div class="edit-miss-row">' +
+          '<input class="input qtd ed-qtd" inputmode="numeric" pattern="[0-9]*" placeholder="Qtd" maxlength="3" value="' + esc(edQtd) + '">' +
+          '<div class="code-wrap"><b>NX</b><input class="mcode ed-codigo" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="número" value="' + esc(edCodigo) + '"></div>' +
+        "</div>" +
+        '<button type="button" class="btn-primary ed-save" data-save="' + r.id + '">Salvar</button>' +
+      "</div>" +
     "</div>";
   }
 
-  document.getElementById("liberadasList").addEventListener("click", async function (e) {
-    var wrap = e.target.closest(".entry");
-    if (!wrap) return;
-    var id = wrap.dataset.id;
-
-    if (e.target.classList.contains("miss-link")) {
-      var box = wrap.querySelector(".miss-box");
-      var rows = wrap.querySelector(".missRowsInline");
-      box.classList.toggle("show");
-      if (box.classList.contains("show") && !rows.children.length) rows.insertAdjacentHTML("beforeend", missRowHTML());
-      return;
+  document.getElementById("liberadasList").addEventListener("input", function (e) {
+    if (e.target.classList.contains("ed-saca") || e.target.classList.contains("ed-qtd") || e.target.classList.contains("ed-codigo")) {
+      e.target.value = e.target.value.replace(/\D/g, "").slice(0, e.target.classList.contains("ed-codigo") ? 8 : 3);
     }
-    if (e.target.classList.contains("add-miss-inline")) {
-      wrap.querySelector(".missRowsInline").insertAdjacentHTML("beforeend", missRowHTML());
-      return;
-    }
-    if (e.target.classList.contains("del")) {
-      e.target.closest(".miss-row").remove();
-      return;
-    }
-    if (e.target.classList.contains("save-miss")) {
-      var novos = [];
-      wrap.querySelectorAll(".missRowsInline .miss-row").forEach(function (mr) {
-        var qv = parseInt(mr.querySelector(".qtd").value, 10);
-        var cv = mr.querySelector(".mcode").value.trim().replace(/\D/g, "");
-        if ((qv > 0) || cv) novos.push({ qtd: qv > 0 ? qv : 1, codigo: "NX" + cv });
-      });
-      if (!novos.length) { toast("Informe a quantidade ou o código do pacote"); return; }
-      var reg = state.liberadas.find(function (r) { return r.id === id; });
-      var merged = (reg.faltantes || []).concat(novos);
-      var { error } = await sb.from("registros").update({ faltantes: merged }).eq("id", id);
-      if (error) { dbError(error); return; }
-      await renderAll();
-      toast("Pacote faltante registrado na saca " + reg.saca);
-      return;
-    }
-    handleEntryDelete(e);
   });
-  document.getElementById("refusedList").addEventListener("click", handleEntryDelete);
-  function handleEntryDelete(e) {
-    var id = e.target.getAttribute("data-del");
-    if (!id) return;
-    showConfirm("Excluir este registro? A saca sai do histórico de hoje.", true, async function () {
-      var { error } = await sb.from("registros").delete().eq("id", id);
+
+  document.getElementById("liberadasList").addEventListener("click", async function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    if (editBtn) {
+      var panel = editBtn.closest(".entry-compact").querySelector(".edit-panel");
+      panel.hidden = !panel.hidden;
+      return;
+    }
+    var saveBtn = e.target.closest("[data-save]");
+    if (saveBtn) {
+      var card = saveBtn.closest(".entry-compact");
+      var nome = card.querySelector(".ed-nome").value.trim();
+      var sacaNum = normSaca(card.querySelector(".ed-saca").value.trim());
+      var qtd = parseInt(card.querySelector(".ed-qtd").value, 10);
+      var codigo = card.querySelector(".ed-codigo").value.trim().replace(/\D/g, "");
+      if (!nome) { toast("Nome não pode ficar vazio"); return; }
+      if (sacaNum === null || sacaNum < 1 || sacaNum > 999) { toast("Saca inválida (1 a 999)"); return; }
+      var faltantes = (qtd > 0 || codigo) ? [{ qtd: qtd > 0 ? qtd : 1, codigo: "NX" + codigo }] : [];
+      saveBtn.disabled = true;
+      var { error } = await sb.from("registros").update({ motorista: nome, saca: sacaNum, faltantes: faltantes }).eq("id", saveBtn.getAttribute("data-save"));
+      saveBtn.disabled = false;
       if (error) { dbError(error); return; }
       await renderAll();
-    });
-  }
+      toast("Saca " + sacaNum + " atualizada");
+      return;
+    }
+    var delBtn = e.target.closest("[data-del]");
+    if (delBtn) {
+      var delId = delBtn.getAttribute("data-del");
+      showConfirm("Excluir este registro? A saca sai do histórico de hoje.", true, async function () {
+        var { error } = await sb.from("registros").delete().eq("id", delId);
+        if (error) { dbError(error); return; }
+        await renderAll();
+      });
+    }
+  });
 
-  /* ================= RENDER: RECUSADAS ================= */
+  /* ================= RENDER: HISTÓRICO (hoje — tabela) ================= */
   async function fetchTodayRecusadas() {
     return fetchAll(function (from, to) {
       return sb.from("registros").select("*").eq("dia", todayKey()).eq("status", "recusou")
         .order("ts_resolvido", { ascending: false }).range(from, to);
     });
   }
-  function renderRefused() {
-    var wrap = document.getElementById("refusedList");
-    wrap.innerHTML = state.recusadas.length ? state.recusadas.map(function (r) { return entryHTML(r, false); }).join("") : '<div class="empty">Nenhuma saca recusada hoje.</div>';
+  async function fetchTodayAusentes() {
+    return fetchAll(function (from, to) {
+      return sb.from("registros").select("*").eq("dia", todayKey()).eq("status", "ausente")
+        .order("ts_resolvido", { ascending: false }).range(from, to);
+    });
+  }
+  var STATUS_LABEL = { levou: "Liberado", recusou: "Recusado", ausente: "Ausente" };
+  var STATUS_CLASS = { levou: "ok", recusou: "no", ausente: "absent" };
+  function renderHistorico() {
+    var wrap = document.getElementById("historicoList");
+    var all = state.liberadas.concat(state.recusadas, state.ausentes)
+      .sort(function (a, b) { return new Date(b.ts_resolvido) - new Date(a.ts_resolvido); });
+    if (!all.length) { wrap.innerHTML = '<div class="empty">Nada registrado hoje ainda.</div>'; return; }
+    var rows = all.map(function (r) {
+      var pacotes = r.faltantes && r.faltantes.length
+        ? r.faltantes.map(function (f) { return esc(f.codigo) + " ×" + f.qtd; }).join(", ")
+        : "—";
+      return "<tr>" +
+        "<td>" + esc(r.motorista) + "</td>" +
+        "<td>" + (r.saca ? esc(r.saca) : "—") + "</td>" +
+        "<td>" + pacotes + "</td>" +
+        '<td><span class="chip ' + STATUS_CLASS[r.status] + '">' + STATUS_LABEL[r.status] + "</span></td>" +
+      "</tr>";
+    }).join("");
+    wrap.innerHTML = '<div class="hist-table-wrap"><table class="hist-table"><thead><tr>' +
+      "<th>Motorista</th><th>Saca</th><th>Pacotes que faltou</th><th>Status</th>" +
+      "</tr></thead><tbody>" + rows + "</tbody></table></div>";
   }
 
   /* ================= STAT BAR ================= */
@@ -584,6 +600,7 @@
     document.getElementById("sWait").textContent = state.fila.length;
     document.getElementById("sOk").textContent = state.liberadas.length;
     document.getElementById("sNo").textContent = state.recusadas.length;
+    document.getElementById("sAusente").textContent = state.ausentes.length;
     var ready = state.fila.filter(function (f) { return f.saca; }).length;
     var badge = document.getElementById("tabWaitBadge");
     badge.hidden = ready === 0;
@@ -632,7 +649,6 @@
   /* ================= RELATÓRIOS (gestor) ================= */
   var MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
     "agosto", "setembro", "outubro", "novembro", "dezembro"];
-  var reportLibMode = "dia";
 
   function fmtDateLabel(k) {
     var p = k.split("-");
@@ -640,40 +656,59 @@
     var label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
     return k === todayKey() ? label + " · hoje" : label;
   }
-  function fmtMonthLabel(k) {
-    var p = k.split("-");
+  function fmtMonthLabel(ym) {
+    var p = ym.split("-");
     var name = MESES_PT[+p[1] - 1] || "";
     return name.charAt(0).toUpperCase() + name.slice(1) + " de " + p[0];
   }
+  function currentMonthKey() { return todayKey().slice(0, 7); }
+  function monthRange(ym) {
+    var p = ym.split("-");
+    var y = +p[0], m = +p[1];
+    var start = ym + "-01";
+    var endY = m === 12 ? y + 1 : y;
+    var endM = m === 12 ? 1 : m + 1;
+    return { start: start, end: endY + "-" + String(endM).padStart(2, "0") + "-01" };
+  }
+
+  var reportMonthInput = document.getElementById("reportMonth");
+  reportMonthInput.value = currentMonthKey();
+  reportMonthInput.addEventListener("change", function () {
+    if (!reportMonthInput.value) reportMonthInput.value = currentMonthKey();
+    renderReportLiberadas();
+    renderReportRecusadas();
+  });
 
   async function renderReportLiberadas() {
     var wrap = document.getElementById("reportLibList");
     wrap.innerHTML = '<div class="empty">Carregando…</div>';
+    var ym = reportMonthInput.value || currentMonthKey();
+    var range = monthRange(ym);
+    document.getElementById("reportLibLabel").textContent = "Total liberadas — " + fmtMonthLabel(ym);
     var all = await fetchAll(function (from, to) {
-      return sb.from("registros").select("id,dia").eq("status", "levou").range(from, to);
+      return sb.from("registros").select("id,dia").eq("status", "levou").gte("dia", range.start).lt("dia", range.end).range(from, to);
     });
     document.getElementById("reportLibTotal").textContent = all.length;
-    if (!all.length) { wrap.innerHTML = '<div class="empty">Nenhuma saca liberada registrada ainda.</div>'; return; }
+    if (!all.length) { wrap.innerHTML = '<div class="empty">Nenhuma saca liberada nesse mês.</div>'; return; }
     var groups = {};
-    all.forEach(function (r) {
-      var key = reportLibMode === "dia" ? r.dia : String(r.dia).slice(0, 7);
-      groups[key] = (groups[key] || 0) + 1;
-    });
+    all.forEach(function (r) { groups[r.dia] = (groups[r.dia] || 0) + 1; });
     var keys = Object.keys(groups).sort().reverse();
     wrap.innerHTML = keys.map(function (k) {
-      var label = reportLibMode === "dia" ? fmtDateLabel(k) : fmtMonthLabel(k);
-      return '<div class="report-row"><span>' + esc(label) + "</span><b>" + groups[k] + "</b></div>";
+      return '<div class="report-row"><span>' + esc(fmtDateLabel(k)) + "</span><b>" + groups[k] + "</b></div>";
     }).join("");
   }
 
   async function renderReportRecusadas() {
     var wrap = document.getElementById("reportRecList");
     wrap.innerHTML = '<div class="empty">Carregando…</div>';
+    var ym = reportMonthInput.value || currentMonthKey();
+    var range = monthRange(ym);
+    document.getElementById("reportRecLabel").textContent = "Total recusadas — " + fmtMonthLabel(ym);
     var all = await fetchAll(function (from, to) {
-      return sb.from("registros").select("motorista,dia,saca,ts_resolvido").eq("status", "recusou").range(from, to);
+      return sb.from("registros").select("motorista,dia,saca,ts_resolvido").eq("status", "recusou").gte("dia", range.start).lt("dia", range.end).range(from, to);
     });
     document.getElementById("reportRecTotal").textContent = all.length;
-    if (!all.length) { wrap.innerHTML = '<div class="empty">Nenhuma saca recusada registrada ainda.</div>'; return; }
+    if (!all.length) { wrap.innerHTML = '<div class="empty">Nenhuma saca recusada nesse mês.</div>'; return; }
     var byDriver = {};
     all.forEach(function (r) { (byDriver[r.motorista] = byDriver[r.motorista] || []).push(r); });
     var names = Object.keys(byDriver).sort(function (a, b) {
@@ -686,7 +721,7 @@
       }).join("");
       return '<div class="report-driver" data-name="' + esc(n) + '">' +
         '<button type="button" class="report-driver-head"><span>' + esc(n) + '</span>' +
-          '<span class="rd-meta"><b>' + list.length + '</b>' +
+          '<span class="rd-meta"><b>' + list.length + "</b> recusada" + (list.length > 1 ? "s" : "") +
           '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span></button>' +
         '<div class="report-driver-body">' + sub + "</div>" +
       "</div>";
@@ -700,14 +735,14 @@
 
   /* ================= INIT / POLLING ================= */
   async function renderAll() {
-    var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas()]);
-    state.fila = results[0]; state.liberadas = results[1]; state.recusadas = results[2];
+    var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas(), fetchTodayAusentes()]);
+    state.fila = results[0]; state.liberadas = results[1]; state.recusadas = results[2]; state.ausentes = results[3];
     document.getElementById("connBanner").hidden = true;
     renderStats();
     renderQueue();
     renderResolve();
     renderLiberadas();
-    renderRefused();
+    renderHistorico();
   }
 
   var pollTimer = null;

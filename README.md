@@ -38,12 +38,17 @@ deploy estático na [Vercel](https://vercel.com).
 
 ## 2. Criar os logins
 
-O Supabase Auth cuida de senha/sessão; a tabela `usuarios_sacas` só diz **quem é
-gestor**. Repita para cada pessoa:
+O Supabase Auth exige e-mail, mas a tela de login do app só pede um **usuário** —
+o `app.js` completa sozinho com o domínio fixo `@gestaosacas.local` antes de mandar
+pro Supabase (isso é só uma formalidade técnica, não é um e-mail real). A tabela
+`usuarios_sacas` diz **quem é gestor**. Repita para cada pessoa:
 
-1. **Authentication > Users > Add user** — coloque um e-mail (pode ser algo como
-   `ponto1@suaempresa.com.br` mesmo que não receba e-mail de verdade) e uma senha.
-   Marque **Auto Confirm User** pra não precisar de confirmação por e-mail.
+1. **Authentication > Users > Add user** — em e-mail, coloque
+   `usuario@gestaosacas.local` trocando `usuario` pelo nome de login que a pessoa
+   vai digitar (ex.: `ponto1@gestaosacas.local` pro usuário `ponto1`). Defina uma
+   senha. **Marque "Auto Confirm User"** — sem isso o Supabase espera uma
+   confirmação por e-mail que nunca vai chegar, porque o endereço não existe de
+   verdade.
 2. Copie o **User UID** que aparece na lista.
 3. No **SQL Editor**, rode um insert pra esse UID:
 
@@ -53,7 +58,13 @@ gestor**. Repita para cada pessoa:
    ```
 
 Quem é `'gestor'` também enxerga a aba **Relatórios**; `'operador'` só vê o
-dia a dia (Fila, Liberar, Liberadas, Recusadas, Lista).
+dia a dia (Fila, Liberar, Liberadas, Recusadas, Lista). No login do app, a pessoa
+digita só `ponto1` (sem o `@gestaosacas.local`) — isso é adicionado por trás dos
+panos.
+
+Se um dia quiser trocar o domínio fixo, é só editar a constante `AUTH_DOMAIN` no
+topo do `app.js` — mas troque **antes** de criar os usuários, senão os e-mails já
+cadastrados não batem mais.
 
 ## 3. Testar localmente
 

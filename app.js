@@ -107,9 +107,17 @@
     startPolling();
   }
 
+  // o Supabase Auth exige e-mail; a pessoa só digita um usuário, e a gente
+  // completa com um domínio fixo por trás dos panos antes de mandar pro login
+  var AUTH_DOMAIN = "gestaosacas.local";
+  function toAuthEmail(usuario) {
+    var clean = usuario.trim().toLowerCase().replace(/\s+/g, ".").replace(/[^a-z0-9.\-_]/g, "");
+    return clean + "@" + AUTH_DOMAIN;
+  }
+
   document.getElementById("loginForm").addEventListener("submit", async function (e) {
     e.preventDefault();
-    var email = document.getElementById("loginUser").value.trim();
+    var email = toAuthEmail(document.getElementById("loginUser").value);
     var pass = document.getElementById("loginPass").value;
     var err = document.getElementById("loginError");
     var btn = document.getElementById("loginBtn");
@@ -118,7 +126,7 @@
     var { data, error } = await sb.auth.signInWithPassword({ email: email, password: pass });
     btn.disabled = false; btn.textContent = "Entrar";
     if (error || !data.user) {
-      err.textContent = "E-mail ou senha inválidos.";
+      err.textContent = "Usuário ou senha inválidos.";
       err.classList.add("show");
       return;
     }

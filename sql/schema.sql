@@ -1,6 +1,15 @@
 -- ============================================================
 -- GESTÃO DE SACAS — schema do Supabase
 -- Rode este arquivo inteiro em Supabase > SQL Editor > New query
+-- (num projeto novo, do zero — os "create table if not exists" não
+-- fazem nada se a tabela já existir).
+--
+-- Se você já tinha rodado uma versão anterior deste schema, rode só
+-- estes dois comandos em vez do arquivo inteiro:
+--
+--   alter table fila alter column saca drop not null;
+--   drop table if exists roster;  -- não é mais usada (a Lista agora
+--                                  -- insere direto na fila)
 -- ============================================================
 
 create extension if not exists pgcrypto;
@@ -22,22 +31,13 @@ create table if not exists motoristas (
   criado_em   timestamptz not null default now()
 );
 
--- ---------- lista do dia (planilha importada + quem foi adicionado na Fila) ----------
-create table if not exists roster (
-  id         uuid primary key default gen_random_uuid(),
-  dia        date not null,
-  nome       text not null,
-  fonte      text not null default 'manual' check (fonte in ('excel', 'manual')),
-  ausente    boolean not null default false,
-  criado_em  timestamptz not null default now(),
-  unique (dia, nome)
-);
-
--- ---------- fila: motorista aguardando liberação (nome + saca já anotados) ----------
+-- ---------- fila: motorista aguardando saca ou liberação ----------
+-- saca fica nula quando o nome veio colado na aba Lista e o motorista
+-- ainda não chegou pra informar o número; é preenchida na Fila.
 create table if not exists fila (
   id         uuid primary key default gen_random_uuid(),
   motorista  text not null,
-  saca       integer not null check (saca between 1 and 999),
+  saca       integer check (saca between 1 and 999),
   dia        date not null,
   criado_em  timestamptz not null default now()
 );
@@ -58,7 +58,6 @@ create table if not exists registros (
 create index if not exists registros_dia_idx on registros (dia);
 create index if not exists registros_status_idx on registros (status);
 create index if not exists fila_dia_idx on fila (dia);
-create index if not exists roster_dia_idx on roster (dia);
 
 -- ============================================================
 -- RLS — bloqueia acesso anônimo, mas não trava a equipe entre si.
@@ -70,7 +69,6 @@ create index if not exists roster_dia_idx on roster (dia);
 -- ============================================================
 alter table usuarios_sacas enable row level security;
 alter table motoristas     enable row level security;
-alter table roster         enable row level security;
 alter table fila           enable row level security;
 alter table registros      enable row level security;
 
@@ -78,9 +76,6 @@ create policy "cada um vê o próprio perfil" on usuarios_sacas
   for select using (auth.uid() = id);
 
 create policy "equipe autenticada - acesso total" on motoristas
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "equipe autenticada - acesso total" on roster
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 create policy "equipe autenticada - acesso total" on fila

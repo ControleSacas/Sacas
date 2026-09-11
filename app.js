@@ -72,7 +72,27 @@
     return all;
   }
 
-  var state = { fila: [], liberadas: [], recusadas: [], roster: [], motoristas: [], session: null };
+  var state = { fila: [], liberadas: [], recusadas: [], motoristas: [], session: null };
+
+  /* ================= THEME ================= */
+  var SUN_PATH = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>';
+  var MOON_PATH = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  function isDarkActive() {
+    var t = document.documentElement.getAttribute("data-theme");
+    if (t === "dark") return true;
+    if (t === "light") return false;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function updateThemeIcon() {
+    document.getElementById("themeIcon").innerHTML = isDarkActive() ? SUN_PATH : MOON_PATH;
+  }
+  document.getElementById("themeToggle").addEventListener("click", function () {
+    var next = isDarkActive() ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("gs_theme", next); } catch (e) {}
+    updateThemeIcon();
+  });
+  updateThemeIcon();
 
   /* ---------- date header ---------- */
   var now = new Date();
@@ -294,7 +314,6 @@
     submitBtn.disabled = false;
     if (error) { dbError(error, "Não deu pra adicionar à fila"); return; }
     await rememberDriver(nome);
-    await ensureRosterListed(nome, "manual");
     filaForm.reset();
     acList.hidden = true;
     await renderAll();
@@ -314,24 +333,84 @@
     document.getElementById("filaCount").textContent = items.length ? "(" + items.length + ")" : "";
     if (!items.length) { wrap.innerHTML = '<div class="empty">Ninguém na fila no momento.</div>'; return; }
     wrap.innerHTML = items.map(function (f) {
-      return '<div class="queue-row" data-id="' + f.id + '">' +
-        '<div class="tag">' + esc(f.saca) + "</div>" +
-        '<div class="who"><b>' + esc(f.motorista) + '</b><div class="meta elapsed" data-ts="' + f.criado_em + '">' + fmtElapsed(f.criado_em) + "</div></div>" +
-        '<button class="row-del" data-del="' + f.id + '">remover</button>' +
+      if (f.saca) {
+        return '<div class="queue-row" data-id="' + f.id + '">' +
+          '<div class="tag">' + esc(f.saca) + "</div>" +
+          '<div class="who"><b>' + esc(f.motorista) + '</b><div class="meta elapsed" data-ts="' + f.criado_em + '">' + fmtElapsed(f.criado_em) + "</div></div>" +
+          '<button class="row-del" data-del="' + f.id + '">remover</button>' +
+        "</div>";
+      }
+      return '<div class="pending-row" data-id="' + f.id + '">' +
+        '<div class="pr-top"><div class="who"><b>' + esc(f.motorista) + '</b>' +
+          '<div class="meta elapsed" data-ts="' + f.criado_em + '">aguardando saca · ' + fmtElapsed(f.criado_em) + "</div></div></div>" +
+        '<div class="pr-actions">' +
+          '<input class="input pr-bag" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="nº da saca">' +
+          '<button type="button" class="pr-ok-btn" data-set-saca="' + f.id + '">OK</button>' +
+          '<button type="button" class="pr-absent-btn" data-ausente="' + f.id + '">Ausente</button>' +
+        "</div>" +
       "</div>";
     }).join("");
   }
-  document.getElementById("queueList").addEventListener("click", function (e) {
-    var id = e.target.getAttribute("data-del");
-    if (!id) return;
-    var it = state.fila.find(function (f) { return f.id === id; });
-    if (!it) return;
-    showConfirm('Remover "' + it.motorista + '" (saca ' + it.saca + ") da fila?", false, async function () {
-      var { error } = await sb.from("fila").delete().eq("id", id);
-      if (error) { dbError(error); return; }
-      await renderAll();
-    });
+  document.getElementById("queueList").addEventListener("input", function (e) {
+    if (e.target.classList.contains("pr-bag")) e.target.value = e.target.value.replace(/\D/g, "").slice(0, 3);
   });
+  document.getElementById("queueList").addEventListener("click", async function (e) {
+    var delId = e.target.getAttribute("data-del");
+    if (delId) {
+      var it = state.fila.find(function (f) { return f.id === delId; });
+      if (!it) return;
+      showConfirm('Remover "' + it.motorista + '" (saca ' + it.saca + ") da fila?", false, async function () {
+        var { error } = await sb.from("fila").delete().eq("id", delId);
+        if (error) { dbError(error); return; }
+        await renderAll();
+      });
+      return;
+    }
+    var absentId = e.target.getAttribute("data-ausente");
+    if (absentId) {
+      var it2 = state.fila.find(function (f) { return f.id === absentId; });
+      if (!it2) return;
+      showConfirm('Marcar "' + it2.motorista + '" como ausente? Ele sai da fila.', true, async function () {
+        var { error } = await sb.from("fila").delete().eq("id", absentId);
+        if (error) { dbError(error); return; }
+        await renderAll();
+        toast(it2.motorista + " marcado como ausente");
+      });
+      return;
+    }
+    var setId = e.target.getAttribute("data-set-saca");
+    if (setId) {
+      var row = e.target.closest(".pending-row");
+      var input = row.querySelector(".pr-bag");
+      var sacaNum = normSaca(input.value.trim());
+      if (sacaNum === null || sacaNum < 1 || sacaNum > 999) {
+        input.classList.add("field-error");
+        toast("Digite a saca (1 a 999)");
+        return;
+      }
+      input.classList.remove("field-error");
+      e.target.disabled = true;
+      var conflict = await checkSacaConflict(sacaNum);
+      e.target.disabled = false;
+      if (conflict && conflict.type === "pending") {
+        toast("Saca " + sacaNum + " já está na fila, aguardando liberação");
+        return;
+      }
+      if (conflict && conflict.type === "taken") {
+        showConfirm("A saca " + sacaNum + " já foi liberada hoje para " + conflict.with.motorista + ". Confirma mesmo assim?", true, async function () {
+          await saveSacaForFila(setId, sacaNum);
+        });
+        return;
+      }
+      await saveSacaForFila(setId, sacaNum);
+    }
+  });
+  async function saveSacaForFila(id, sacaNum) {
+    var { error } = await sb.from("fila").update({ saca: sacaNum }).eq("id", id);
+    if (error) { dbError(error, "Não deu pra salvar a saca"); return; }
+    await renderAll();
+    toast("Saca " + sacaNum + " definida — pronta pra liberar");
+  }
 
   /* ================= RENDER: RESOLVE (Liberar tab) ================= */
   var resolveList = document.getElementById("resolveList");
@@ -347,11 +426,12 @@
 
   function renderResolve() {
     var q = resolveSearch.value.trim().toLowerCase();
-    var items = state.fila.filter(function (f) {
+    var ready = state.fila.filter(function (f) { return f.saca; });
+    var items = ready.filter(function (f) {
       return !q || f.motorista.toLowerCase().indexOf(q) !== -1 || String(f.saca).indexOf(q) !== -1;
     });
     if (!items.length) {
-      resolveList.innerHTML = '<div class="empty">' + (state.fila.length ? "Nada encontrado para essa busca." : "Fila vazia — ninguém aguardando liberação.") + "</div>";
+      resolveList.innerHTML = '<div class="empty">' + (ready.length ? "Nada encontrado para essa busca." : "Ninguém com saca definida aguardando liberação.") + "</div>";
       return;
     }
     resolveList.innerHTML = items.map(function (f) {
@@ -504,9 +584,10 @@
     document.getElementById("sWait").textContent = state.fila.length;
     document.getElementById("sOk").textContent = state.liberadas.length;
     document.getElementById("sNo").textContent = state.recusadas.length;
+    var ready = state.fila.filter(function (f) { return f.saca; }).length;
     var badge = document.getElementById("tabWaitBadge");
-    badge.hidden = state.fila.length === 0;
-    badge.textContent = state.fila.length;
+    badge.hidden = ready === 0;
+    badge.textContent = ready;
   }
 
   /* ================= ELAPSED TICKER ================= */
@@ -517,88 +598,7 @@
     });
   }, 20000);
 
-  /* ================= ROSTER (Lista do dia) ================= */
-  var rosterList = document.getElementById("rosterList");
-  function driverTodayStatus(nome) {
-    var n = nome.toLowerCase();
-    var reg = state.liberadas.concat(state.recusadas).find(function (r) { return r.motorista.toLowerCase() === n; });
-    if (reg) return reg.status === "levou" ? { cls: "ok", label: "Liberada" } : { cls: "no", label: "Recusada" };
-    var pend = state.fila.find(function (f) { return f.motorista.toLowerCase() === n; });
-    if (pend) return { cls: "pend", label: "Na fila" };
-    return { cls: "wait", label: "Não chegou" };
-  }
-  async function fetchTodayRoster() {
-    return fetchAll(function (from, to) {
-      return sb.from("roster").select("*").eq("dia", todayKey()).order("nome", { ascending: true }).range(from, to);
-    });
-  }
-  async function ensureRosterListed(nome, fonte) {
-    nome = nome.trim();
-    if (!nome) return false;
-    var exists = state.roster.some(function (n) { return n.nome.toLowerCase() === nome.toLowerCase(); });
-    if (exists) return false;
-    var { error } = await sb.from("roster").insert({ dia: todayKey(), nome: nome, fonte: fonte || "manual", ausente: false });
-    if (error && error.code !== "23505") { dbError(error); return false; }
-    return true;
-  }
-  function renderRoster() {
-    var items = state.roster;
-    var cnt = document.getElementById("rosterCount");
-    if (!items.length) {
-      cnt.textContent = "Nenhum motorista na lista";
-      rosterList.innerHTML = '<div class="empty">Suba a lista do dia para começar.</div>';
-      return;
-    }
-    var ausentes = items.filter(function (it) { return it.ausente && driverTodayStatus(it.nome).cls === "wait"; }).length;
-    cnt.textContent = items.length + " motorista" + (items.length > 1 ? "s" : "") + " na lista" +
-      (ausentes ? " · " + ausentes + " ausente" + (ausentes > 1 ? "s" : "") : "");
-    rosterList.innerHTML = items.map(function (it) {
-      var st = driverTodayStatus(it.nome);
-      var pillHTML, actionHTML = "";
-      if (st.cls === "wait") {
-        if (it.ausente) {
-          pillHTML = '<span class="status-pill absent">Ausente</span>';
-          actionHTML = '<button type="button" class="r-action" data-undo-absent="' + it.id + '">desfazer</button>';
-        } else {
-          pillHTML = '<span class="status-pill wait">Não chegou</span>';
-          actionHTML = '<button type="button" class="r-action" data-mark-absent="' + it.id + '">ausente</button>';
-        }
-      } else {
-        pillHTML = '<span class="status-pill ' + st.cls + '">' + st.label + '</span>';
-      }
-      return '<div class="roster-row" data-id="' + it.id + '">' +
-        '<div class="r-left"><span class="r-name">' + esc(it.nome) + '</span>' +
-          '<span class="r-meta"><span class="src">' + (it.fonte === "excel" ? "colado" : "manual") + '</span></span></div>' +
-        '<div class="r-right">' + actionHTML + pillHTML +
-          '<button class="r-del" data-del="' + it.id + '" aria-label="remover">&times;</button></div>' +
-      "</div>";
-    }).join("");
-  }
-  rosterList.addEventListener("click", async function (e) {
-    var del = e.target.getAttribute("data-del");
-    if (del) {
-      var { error } = await sb.from("roster").delete().eq("id", del);
-      if (error) { dbError(error); return; }
-      await renderAll();
-      return;
-    }
-    var markId = e.target.getAttribute("data-mark-absent");
-    if (markId) {
-      var { error: e1 } = await sb.from("roster").update({ ausente: true }).eq("id", markId);
-      if (e1) { dbError(e1); return; }
-      await renderAll();
-      return;
-    }
-    var undoId = e.target.getAttribute("data-undo-absent");
-    if (undoId) {
-      var { error: e2 } = await sb.from("roster").update({ ausente: false }).eq("id", undoId);
-      if (e2) { dbError(e2); return; }
-      await renderAll();
-      return;
-    }
-  });
-
-  /* ---------- lista colada: um nome de motorista por linha ---------- */
+  /* ---------- lista colada: um nome de motorista por linha, direto pra Fila ---------- */
   function parsePastedNames(text) {
     return (text || "")
       .split(/\r?\n/)
@@ -612,15 +612,21 @@
     if (!names.length) { toast("Cole ao menos um nome"); return; }
     var btn = this;
     btn.disabled = true;
-    var added = 0;
+    var existing = state.fila.map(function (f) { return f.motorista.toLowerCase(); });
+    var added = 0, skipped = 0;
     for (var i = 0; i < names.length; i++) {
-      await ensureDriverListed(names[i]);
-      if (await ensureRosterListed(names[i], "excel")) added++;
+      var nome = names[i];
+      if (existing.indexOf(nome.toLowerCase()) !== -1) { skipped++; continue; }
+      await ensureDriverListed(nome);
+      var { error } = await sb.from("fila").insert({ motorista: nome, saca: null, dia: todayKey() });
+      if (error) { dbError(error); continue; }
+      existing.push(nome.toLowerCase());
+      added++;
     }
     btn.disabled = false;
     ta.value = "";
     await renderAll();
-    toast(added ? added + " nome(s) adicionado(s)" : "Nenhum nome novo — já estavam na lista");
+    toast((added ? added + " nome(s) adicionado(s) à fila" : "Nenhum nome novo") + (skipped ? " · " + skipped + " já estavam na fila" : ""));
   });
 
   /* ================= RELATÓRIOS (gestor) ================= */
@@ -694,15 +700,14 @@
 
   /* ================= INIT / POLLING ================= */
   async function renderAll() {
-    var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas(), fetchTodayRoster()]);
-    state.fila = results[0]; state.liberadas = results[1]; state.recusadas = results[2]; state.roster = results[3];
+    var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas()]);
+    state.fila = results[0]; state.liberadas = results[1]; state.recusadas = results[2];
     document.getElementById("connBanner").hidden = true;
     renderStats();
     renderQueue();
     renderResolve();
     renderLiberadas();
     renderRefused();
-    renderRoster();
   }
 
   var pollTimer = null;

@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gestão de Sacas</title>
 <meta name="theme-color" content="#2f4a7c">
+<script>
+  (function () {
+    var t = "dark";
+    try {
+      var saved = localStorage.getItem("gs_theme");
+      if (saved === "dark" || saved === "light") t = saved;
+    } catch (e) {}
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -247,19 +257,13 @@
 
   textarea.input { resize: vertical; min-height: 116px; line-height: 1.5; font-family: inherit; }
 
-  .roster-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; }
-  .roster-row .r-left { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .roster-row .r-name { font-weight: 600; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .roster-row .src { font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
-  .roster-row .r-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .status-pill { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
-  .status-pill.wait { background: var(--surface-2); color: var(--ink-faint); }
-  .status-pill.pend { background: var(--accent-soft); color: var(--accent); }
-  .status-pill.ok { background: var(--ok-bg); color: var(--ok); }
-  .status-pill.no { background: var(--danger-bg); color: var(--danger); }
-  .status-pill.absent { background: var(--warn-bg); color: var(--warn); }
-  .r-del { background: none; border: 0; color: var(--ink-faint); font-size: 1rem; padding: 2px 4px; }
-  .r-action { background: none; border: 0; color: var(--accent); font-size: .68rem; font-weight: 700; padding: 2px 2px; white-space: nowrap; }
+  .pending-row { background: var(--surface); border: 1px solid var(--warn); border-radius: 12px; padding: 12px; margin-bottom: 9px; }
+  .pending-row .pr-top { margin-bottom: 10px; }
+  .pending-row .pr-actions { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+  .pr-bag { text-align: center; font-family: "IBM Plex Mono", monospace; letter-spacing: .1em; padding: 10px 6px; }
+  .pr-ok-btn, .pr-absent-btn { border-radius: 10px; padding: 10px 12px; font-weight: 700; font-size: .82rem; white-space: nowrap; }
+  .pr-ok-btn { border: 1.5px solid var(--ok); color: var(--ok); background: var(--ok-bg); }
+  .pr-absent-btn { border: 1.5px solid var(--line-strong); color: var(--ink-soft); background: var(--surface-2); }
 
   .report-total { display: flex; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
   .report-total .label { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); font-weight: 600; }
@@ -348,6 +352,9 @@
         <b id="todayNum">--/--</b>
         <span id="todayName">—</span>
       </div>
+      <button class="icon-btn" id="themeToggle" title="Alternar tema" aria-label="Alternar tema claro/escuro">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      </button>
       <button class="icon-btn" id="logoutBtn" title="Sair" aria-label="Sair">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
@@ -430,7 +437,7 @@
     <section data-panel="lista">
       <div class="panel-head">
         <h1>Lista</h1>
-        <span class="hint">Motoristas designados hoje</span>
+        <span class="hint">Colar e já vai pra Fila</span>
       </div>
 
       <div class="card">
@@ -438,11 +445,12 @@
           <label for="pasteNames">Colar lista de motoristas</label>
           <textarea class="input paste-area" id="pasteNames" rows="6" placeholder="Um nome por linha…&#10;Carlos Andrade&#10;Márcia Ribeiro&#10;João Vitor Souza"></textarea>
         </div>
-        <button type="button" class="btn-primary" id="addPasted">Adicionar à lista</button>
+        <button type="button" class="btn-primary" id="addPasted">Adicionar à fila</button>
       </div>
-
-      <div class="log-title" id="rosterCount">Carregando…</div>
-      <div id="rosterList"></div>
+      <p style="font-size:.76rem;color:var(--ink-soft);margin:14px 2px 0">
+        Cada nome entra direto na Fila aguardando o número da saca — preenche quando o
+        motorista chegar (aba Fila), ou marca Ausente se ele não vier.
+      </p>
     </section>
 
     <!-- ============ RELATÓRIOS (gestor) ============ -->

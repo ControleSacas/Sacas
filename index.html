@@ -311,6 +311,7 @@
   .report-driver-head { width: 100%; display: flex; align-items: center; justify-content: space-between; background: none; border: 0; padding: 12px 13px; font-size: .9rem; font-weight: 600; color: var(--ink); }
   .report-driver-head .rd-meta { display: flex; align-items: center; gap: 6px; }
   .report-driver-head b { font-family: "IBM Plex Mono", monospace; color: var(--danger); font-variant-numeric: tabular-nums; }
+  .report-driver-head.neutral b { color: var(--ink); }
   .report-driver-head .chev { width: 14px; height: 14px; color: var(--ink-faint); transition: transform .15s; }
   .report-driver.open .chev { transform: rotate(90deg); }
   .report-driver-body { display: none; padding: 0 13px 12px; }
@@ -507,6 +508,7 @@
       <div class="pilltabs" id="reportPilltabs">
         <button data-rsub="lib" class="active">Liberadas</button>
         <button data-rsub="rec">Recusadas</button>
+        <button data-rsub="hist">Histórico</button>
       </div>
 
       <div class="subpanel active" data-rsub="lib">
@@ -518,6 +520,12 @@
         <div class="report-total no"><span class="label" id="reportRecLabel">Total recusadas</span><b id="reportRecTotal">0</b></div>
         <div class="log-title" style="margin:0 2px 10px">Por motorista</div>
         <div id="reportRecList"></div>
+      </div>
+
+      <div class="subpanel" data-rsub="hist">
+        <div class="report-total"><span class="label" id="reportHistLabel">Movimentação</span><b id="reportHistTotal">0</b></div>
+        <div class="log-title" style="margin:0 2px 10px">Por dia — quem levou e quem recusou</div>
+        <div id="reportHistList"></div>
       </div>
     </section>
 

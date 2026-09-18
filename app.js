@@ -175,7 +175,7 @@
     panels.forEach(function (p) { p.classList.toggle("active", p.dataset.panel === name); });
     document.querySelectorAll("#tabbar button").forEach(function (b) { b.classList.toggle("active", b.dataset.go === name); });
     window.scrollTo(0, 0);
-    if (name === "relatorios") { renderReportLiberadas(); renderReportRecusadas(); }
+    if (name === "relatorios") { renderReportLiberadas(); renderReportRecusadas(); renderReportHistorico(); }
   }
   document.getElementById("reportPilltabs").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-rsub]");
@@ -774,6 +774,7 @@
     if (!reportMonthInput.value) reportMonthInput.value = currentMonthKey();
     renderReportLiberadas();
     renderReportRecusadas();
+    renderReportHistorico();
   });
 
   async function renderReportLiberadas() {
@@ -825,6 +826,41 @@
     }).join("");
   }
   document.getElementById("reportRecList").addEventListener("click", function (e) {
+    var head = e.target.closest(".report-driver-head");
+    if (!head) return;
+    head.closest(".report-driver").classList.toggle("open");
+  });
+
+  async function renderReportHistorico() {
+    var wrap = document.getElementById("reportHistList");
+    wrap.innerHTML = '<div class="empty">Carregando…</div>';
+    var ym = reportMonthInput.value || currentMonthKey();
+    var range = monthRange(ym);
+    document.getElementById("reportHistLabel").textContent = "Movimentação — " + fmtMonthLabel(ym);
+    var all = await fetchAll(function (from, to) {
+      return sb.from("registros").select("motorista,dia,saca,status,ts_resolvido").in("status", ["levou", "recusou"]).gte("dia", range.start).lt("dia", range.end).range(from, to);
+    });
+    document.getElementById("reportHistTotal").textContent = all.length;
+    if (!all.length) { wrap.innerHTML = '<div class="empty">Nenhuma movimentação nesse mês.</div>'; return; }
+    var byDia = {};
+    all.forEach(function (r) { (byDia[r.dia] = byDia[r.dia] || []).push(r); });
+    var dias = Object.keys(byDia).sort().reverse();
+    wrap.innerHTML = dias.map(function (k) {
+      var list = byDia[k].slice().sort(function (a, b) { return new Date(b.ts_resolvido) - new Date(a.ts_resolvido); });
+      var sub = list.map(function (r) {
+        var levou = r.status === "levou";
+        return '<div class="report-sub-row"><span style="color:' + (levou ? "var(--ok)" : "var(--danger)") + ';font-weight:600">' +
+          (levou ? "Levou" : "Recusou") + "</span> · " + esc(r.motorista) + " · saca " + esc(r.saca) + " · " + fmtTime(r.ts_resolvido) + "</div>";
+      }).join("");
+      return '<div class="report-driver" data-dia="' + k + '">' +
+        '<button type="button" class="report-driver-head neutral"><span>' + esc(fmtDateLabel(k)) + '</span>' +
+          '<span class="rd-meta"><b>' + list.length + "</b> evento" + (list.length > 1 ? "s" : "") +
+          '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span></button>' +
+        '<div class="report-driver-body">' + sub + "</div>" +
+      "</div>";
+    }).join("");
+  }
+  document.getElementById("reportHistList").addEventListener("click", function (e) {
     var head = e.target.closest(".report-driver-head");
     if (!head) return;
     head.closest(".report-driver").classList.toggle("open");

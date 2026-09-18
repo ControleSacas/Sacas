@@ -26,6 +26,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 
 <style>
@@ -503,6 +504,21 @@
       <div class="field" style="margin-bottom:14px">
         <label for="reportMonth">Mês</label>
         <input type="month" class="input" id="reportMonth">
+      </div>
+
+      <div class="field" style="margin-bottom:18px">
+        <label>Baixar Excel</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:6px">
+          <div style="flex:1;min-width:130px">
+            <label for="xlsxDe" style="font-size:.68rem;color:var(--ink-faint);display:block;margin-bottom:4px">De</label>
+            <input type="date" class="input" id="xlsxDe">
+          </div>
+          <div style="flex:1;min-width:130px">
+            <label for="xlsxAte" style="font-size:.68rem;color:var(--ink-faint);display:block;margin-bottom:4px">Até</label>
+            <input type="date" class="input" id="xlsxAte">
+          </div>
+          <button type="button" class="btn-ghost" id="xlsxBtn" style="width:auto;white-space:nowrap;padding:12px 16px">Baixar Excel</button>
+        </div>
       </div>
 
       <div class="pilltabs" id="reportPilltabs">

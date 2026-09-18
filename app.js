@@ -770,11 +770,54 @@
 
   var reportMonthInput = document.getElementById("reportMonth");
   reportMonthInput.value = currentMonthKey();
+
+  var xlsxDeInput = document.getElementById("xlsxDe");
+  var xlsxAteInput = document.getElementById("xlsxAte");
+  function syncXlsxRangeToMonth() {
+    var range = monthRange(reportMonthInput.value || currentMonthKey());
+    var fim = new Date(range.end + "T00:00:00"); fim.setDate(fim.getDate() - 1);
+    xlsxDeInput.value = range.start;
+    xlsxAteInput.value = fim.toISOString().slice(0, 10);
+  }
+  syncXlsxRangeToMonth();
+
   reportMonthInput.addEventListener("change", function () {
     if (!reportMonthInput.value) reportMonthInput.value = currentMonthKey();
     renderReportLiberadas();
     renderReportRecusadas();
     renderReportHistorico();
+    syncXlsxRangeToMonth();
+  });
+
+  document.getElementById("xlsxBtn").addEventListener("click", async function () {
+    var de = xlsxDeInput.value, ate = xlsxAteInput.value;
+    if (!de || !ate) { toast("Escolha o período (de/até)."); return; }
+    if (de > ate) { toast('A data "De" não pode ser depois da "Até".'); return; }
+    var btn = document.getElementById("xlsxBtn");
+    var original = btn.textContent;
+    btn.disabled = true; btn.textContent = "Gerando…";
+    var ateExclusivo = (function () { var d = new Date(ate + "T00:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+    var all = await fetchAll(function (from, to) {
+      return sb.from("registros").select("motorista,dia,saca,status,ts_resolvido")
+        .gte("dia", de).lt("dia", ateExclusivo).order("dia", { ascending: true }).range(from, to);
+    });
+    btn.disabled = false; btn.textContent = original;
+    if (!all.length) { toast("Nenhum registro nesse período."); return; }
+    var STATUS_PT = { levou: "Levou", recusou: "Recusou", ausente: "Ausente" };
+    var linhas = all.map(function (r) {
+      var p = r.dia.split("-");
+      return {
+        Data: p[2] + "/" + p[1] + "/" + p[0],
+        Motorista: r.motorista,
+        Saca: r.saca || "",
+        Status: STATUS_PT[r.status] || r.status,
+        Horário: fmtTime(r.ts_resolvido)
+      };
+    });
+    var ws = XLSX.utils.json_to_sheet(linhas);
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+    XLSX.writeFile(wb, "gestao-sacas_" + de + "_a_" + ate + ".xlsx");
   });
 
   async function renderReportLiberadas() {

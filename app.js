@@ -881,7 +881,7 @@
     var range = monthRange(ym);
     document.getElementById("reportHistLabel").textContent = "Movimentação — " + fmtMonthLabel(ym);
     var all = await fetchAll(function (from, to) {
-      return sb.from("registros").select("motorista,dia,saca,status,ts_resolvido").in("status", ["levou", "recusou"]).gte("dia", range.start).lt("dia", range.end).range(from, to);
+      return sb.from("registros").select("motorista,dia,saca,status,ts_resolvido,faltantes").in("status", ["levou", "recusou"]).gte("dia", range.start).lt("dia", range.end).range(from, to);
     });
     document.getElementById("reportHistTotal").textContent = all.length;
     if (!all.length) { wrap.innerHTML = '<div class="empty">Nenhuma movimentação nesse mês.</div>'; return; }
@@ -892,8 +892,11 @@
       var list = byDia[k].slice().sort(function (a, b) { return new Date(b.ts_resolvido) - new Date(a.ts_resolvido); });
       var sub = list.map(function (r) {
         var levou = r.status === "levou";
+        var falt = (levou && r.faltantes && r.faltantes.length)
+          ? ' · <span style="color:var(--danger)">faltou ' + r.faltantes.map(function (f) { return esc(f.codigo) + " ×" + f.qtd; }).join(", ") + "</span>"
+          : "";
         return '<div class="report-sub-row"><span style="color:' + (levou ? "var(--ok)" : "var(--danger)") + ';font-weight:600">' +
-          (levou ? "Levou" : "Recusou") + "</span> · " + esc(r.motorista) + " · saca " + esc(r.saca) + " · " + fmtTime(r.ts_resolvido) + "</div>";
+          (levou ? "Levou" : "Recusou") + "</span> · " + esc(r.motorista) + " · saca " + esc(r.saca) + " · " + fmtTime(r.ts_resolvido) + falt + "</div>";
       }).join("");
       return '<div class="report-driver" data-dia="' + k + '">' +
         '<button type="button" class="report-driver-head neutral"><span>' + esc(fmtDateLabel(k)) + '</span>' +

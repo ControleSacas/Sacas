@@ -160,6 +160,17 @@
     padding: 9px 11px; font-size: .76rem; margin-bottom: 14px;
   }
   .conn-banner[hidden] { display: none; }
+  .offline-banner {
+    display: flex; align-items: center; gap: 8px; background: var(--warn-bg); color: var(--warn);
+    font-size: .74rem; font-weight: 600; padding: 8px 14px; text-align: left;
+  }
+  .offline-banner[hidden] { display: none; }
+  .offline-banner svg { width: 14px; height: 14px; stroke: currentColor; flex-shrink: 0; }
+  .pending-badge {
+    display: inline-flex; align-items: center; gap: 5px; font-size: .68rem; font-weight: 700; color: var(--warn);
+    background: var(--warn-bg); padding: 4px 9px; border-radius: 99px; border: none; cursor: pointer; font-family: inherit;
+  }
+  .pending-badge[hidden] { display: none; }
 
   /* ---------- card / form ---------- */
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 15px; }
@@ -381,12 +392,17 @@
 </div>
 
 <div class="app" id="app">
+  <div class="offline-banner" id="offlineBanner" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l22 22M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 3.2-2.2M19 12.5a10 10 0 0 0-2-1.7M12 20h.01"/></svg>
+    <span>Você está offline — as ações ficam salvas aqui e sincronizam sozinhas quando a internet voltar.</span>
+  </div>
   <header class="topbar">
     <div class="brand">
       <b>Gestão de Sacas</b>
       <span>Ponto de retirada</span>
     </div>
     <div class="topbar-right">
+      <button class="pending-badge" id="pendingBadge" type="button" hidden></button>
       <span class="role-chip" id="roleChip" hidden>Gestor</span>
       <div class="today">
         <b id="todayNum">--/--</b>

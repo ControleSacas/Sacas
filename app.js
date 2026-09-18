@@ -62,8 +62,8 @@
   async function fetchAll(build) {
     var all = [], from = 0, pageSize = 1000;
     while (true) {
-      var { data, error } = await build(from, from + pageSize - 1);
-      if (error) { dbError(error); break; }
+      var { data, error } = await comTimeout(build(from, from + pageSize - 1));
+      if (error) { if (!isNetworkError(error)) dbError(error); break; }
       if (!data || !data.length) break;
       all = all.concat(data);
       if (data.length < pageSize) break;
@@ -71,6 +71,51 @@
     }
     return all;
   }
+
+  /* ============================================================
+     OFFLINE: navigator.onLine só diz se a placa de rede está ativa,
+     não se tem internet de verdade — sem isso, uma chamada real fica
+     travada esperando resposta que nunca chega. comTimeout NUNCA
+     rejeita: sempre devolve {data, error}, então todo "if (error)"
+     que já existia no arquivo continua funcionando sem mudar nada,
+     só marca error._timeout/_network pra quem quiser tratar diferente
+     (cair pra fila offline em vez de mostrar erro de verdade).
+     ============================================================ */
+  function lsGet(key, def) {
+    try { var v = localStorage.getItem("gs_" + key); return v ? JSON.parse(v) : def; } catch (e) { return def; }
+  }
+  function lsSet(key, val) {
+    try { localStorage.setItem("gs_" + key, JSON.stringify(val)); } catch (e) {}
+  }
+  function estaOffline() { return typeof navigator !== "undefined" && navigator.onLine === false; }
+  function isNetworkError(err) { return !!(err && (err._timeout || err._network)); }
+  function comTimeout(promise, ms) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var t = setTimeout(function () {
+        if (done) return;
+        done = true;
+        resolve({ data: null, error: { message: "Sem conexão com o servidor — tenta de novo.", _timeout: true } });
+      }, ms || 7000);
+      Promise.resolve(promise).then(
+        function (v) { if (done) return; done = true; clearTimeout(t); resolve(v); },
+        function (e) { if (done) return; done = true; clearTimeout(t); resolve({ data: null, error: { message: (e && e.message) || "Falha de rede", _network: true } }); }
+      );
+    });
+  }
+
+  function filaPendGet() { return lsGet("fila_pendente", []); }
+  function filaPendSet(f) { lsSet("fila_pendente", f); }
+  function filaPendAdd(tipo, payload) {
+    var f = filaPendGet();
+    var acao = { id: "q" + Date.now() + "_" + Math.random().toString(36).slice(2), tipo: tipo, payload: payload, criadoEm: new Date().toISOString() };
+    f.push(acao);
+    filaPendSet(f);
+    return acao;
+  }
+  function contarPendentes() { return filaPendGet().length; }
+  function cacheFilaGet() { return lsGet("cache_fila", []); }
+  function cacheFilaSet(l) { lsSet("cache_fila", l); }
 
   var state = { fila: [], liberadas: [], recusadas: [], ausentes: [], motoristas: [], session: null };
 
@@ -112,13 +157,24 @@
   }
 
   async function loadProfileAndEnter(user) {
-    var { data, error } = await sb.from("usuarios_sacas").select("*").eq("id", user.id).maybeSingle();
-    if (error || !data) {
+    var { data, error } = await comTimeout(sb.from("usuarios_sacas").select("*").eq("id", user.id).maybeSingle());
+    if (isNetworkError(error)) {
+      // sem internet de verdade — usa o último perfil salvo, se for da mesma pessoa
+      var cache = lsGet("cache_perfil", null);
+      if (cache && cache.userId === user.id) { data = cache; }
+      else {
+        document.getElementById("loginError").textContent = "Sem conexão com o servidor — tenta de novo em instantes.";
+        document.getElementById("loginError").classList.add("show");
+        return;
+      }
+    } else if (error || !data) {
       document.getElementById("loginError").textContent =
         "Login certo, mas seu perfil não está cadastrado em usuarios_sacas. Peça pro gestor cadastrar.";
       document.getElementById("loginError").classList.add("show");
-      await sb.auth.signOut();
+      await comTimeout(sb.auth.signOut());
       return;
+    } else {
+      lsSet("cache_perfil", { userId: user.id, nome: data.nome, perfil: data.perfil });
     }
     state.session = { userId: user.id, nome: data.nome, perfil: data.perfil };
     applyRoleUI(data.perfil);
@@ -143,8 +199,13 @@
     var btn = document.getElementById("loginBtn");
     err.classList.remove("show");
     btn.disabled = true; btn.textContent = "Entrando…";
-    var { data, error } = await sb.auth.signInWithPassword({ email: email, password: pass });
+    var { data, error } = await comTimeout(sb.auth.signInWithPassword({ email: email, password: pass }));
     btn.disabled = false; btn.textContent = "Entrar";
+    if (isNetworkError(error)) {
+      err.textContent = "Sem conexão com o servidor — tenta de novo em instantes.";
+      err.classList.add("show");
+      return;
+    }
     if (error || !data.user) {
       err.textContent = "Usuário ou senha inválidos.";
       err.classList.add("show");
@@ -157,7 +218,7 @@
   document.getElementById("logoutBtn").addEventListener("click", function () {
     showConfirm("Sair do sistema?", false, async function () {
       stopPolling();
-      await sb.auth.signOut();
+      await comTimeout(sb.auth.signOut(), 4000); // best-effort — sai localmente mesmo se a rede falhar
       state.session = null;
       showLogin();
     });
@@ -185,32 +246,36 @@
   });
 
   /* ================= DRIVER MEMORY ================= */
+  // conveniência de autocompletar (lembrar motoristas frequentes) — se a rede
+  // falhar aqui, não é crítico, só não atualiza a lista, sem mostrar erro.
   async function refreshMotoristasCache() {
-    var { data, error } = await sb.from("motoristas").select("*").order("vezes", { ascending: false });
-    if (error) { dbError(error); return; }
+    var { data, error } = await comTimeout(sb.from("motoristas").select("*").order("vezes", { ascending: false }));
+    if (error) { if (!isNetworkError(error)) dbError(error); return; }
     state.motoristas = data || [];
   }
   async function rememberDriver(nome) {
     nome = nome.trim();
     if (!nome) return;
+    if (estaOffline()) return;
     var dia = todayKey();
     var hit = state.motoristas.find(function (m) { return m.nome.toLowerCase() === nome.toLowerCase(); });
     if (hit) {
-      var { error } = await sb.from("motoristas").update({ vezes: (hit.vezes || 0) + 1, ultima_vez: dia }).eq("id", hit.id);
-      if (error) { dbError(error); return; }
+      var { error } = await comTimeout(sb.from("motoristas").update({ vezes: (hit.vezes || 0) + 1, ultima_vez: dia }).eq("id", hit.id));
+      if (error) { if (!isNetworkError(error)) dbError(error); return; }
     } else {
-      var { error: e2 } = await sb.from("motoristas").insert({ nome: nome, vezes: 1, ultima_vez: dia });
-      if (e2) { dbError(e2); return; }
+      var { error: e2 } = await comTimeout(sb.from("motoristas").insert({ nome: nome, vezes: 1, ultima_vez: dia }));
+      if (e2) { if (!isNetworkError(e2)) dbError(e2); return; }
     }
     await refreshMotoristasCache();
   }
   async function ensureDriverListed(nome) {
     nome = nome.trim();
     if (!nome) return;
+    if (estaOffline()) return;
     var hit = state.motoristas.find(function (m) { return m.nome.toLowerCase() === nome.toLowerCase(); });
     if (hit) return;
-    var { error } = await sb.from("motoristas").insert({ nome: nome, vezes: 0, ultima_vez: todayKey() });
-    if (error && error.code !== "23505") { dbError(error); return; }
+    var { error } = await comTimeout(sb.from("motoristas").insert({ nome: nome, vezes: 0, ultima_vez: todayKey() }));
+    if (error && error.code !== "23505" && !isNetworkError(error)) { dbError(error); return; }
     await refreshMotoristasCache();
   }
 
@@ -263,10 +328,11 @@
   bag.addEventListener("input", function () { bag.value = bag.value.replace(/\D/g, "").slice(0, 3); });
 
   async function checkSacaConflict(sacaNum) {
+    if (estaOffline()) return null; // sem internet não dá pra checar o servidor — segue em frente, confere no sync
     var dia = todayKey();
-    var { data: pend } = await sb.from("fila").select("id,motorista").eq("dia", dia).eq("saca", sacaNum).limit(1);
+    var { data: pend } = await comTimeout(sb.from("fila").select("id,motorista").eq("dia", dia).eq("saca", sacaNum).limit(1));
     if (pend && pend.length) return { type: "pending", with: pend[0] };
-    var { data: taken } = await sb.from("registros").select("id,motorista").eq("dia", dia).eq("saca", sacaNum).eq("status", "levou").limit(1);
+    var { data: taken } = await comTimeout(sb.from("registros").select("id,motorista").eq("dia", dia).eq("saca", sacaNum).eq("status", "levou").limit(1));
     if (taken && taken.length) return { type: "taken", with: taken[0] };
     return null;
   }
@@ -300,11 +366,47 @@
     addToQueue(nome, sacaNum);
   });
 
+  // aplica a fila de pendências offline em cima do último snapshot da fila
+  // conhecido, pra tela offline mostrar o estado real (mesmo sem sincronizar
+  // ainda com o banco).
+  function filaComPendencias(base) {
+    var lista = base.slice();
+    filaPendGet().forEach(function (a) {
+      if (a.tipo === "addToQueue") {
+        lista.push({ id: "pendente_" + a.id, motorista: a.payload.motorista, saca: a.payload.saca, dia: a.payload.dia, criado_em: a.criadoEm, _pendente: true });
+      } else if (a.tipo === "setSaca") {
+        lista = lista.map(function (f) { return f.id === a.payload.id ? Object.assign({}, f, { saca: a.payload.saca }) : f; });
+      } else if (a.tipo === "removerFila" || a.tipo === "ausente" || a.tipo === "resolver") {
+        lista = lista.filter(function (f) { return f.id !== a.payload.id; });
+      }
+    });
+    return lista;
+  }
+
   async function addToQueue(nome, sacaNum) {
     var submitBtn = document.getElementById("filaSubmitBtn");
     submitBtn.disabled = true;
-    var { error } = await sb.from("fila").insert({ motorista: nome, saca: sacaNum, dia: todayKey() });
+    if (estaOffline()) {
+      filaPendAdd("addToQueue", { motorista: nome, saca: sacaNum, dia: todayKey() });
+      submitBtn.disabled = false;
+      filaForm.reset();
+      acList.hidden = true;
+      await renderAll();
+      toast("Sem internet — saca " + sacaNum + " · " + nome + " salva aqui, sincroniza quando voltar");
+      drv.focus();
+      return;
+    }
+    var { error } = await comTimeout(sb.from("fila").insert({ motorista: nome, saca: sacaNum, dia: todayKey() }));
     submitBtn.disabled = false;
+    if (isNetworkError(error)) {
+      filaPendAdd("addToQueue", { motorista: nome, saca: sacaNum, dia: todayKey() });
+      filaForm.reset();
+      acList.hidden = true;
+      await renderAll();
+      toast("Sem internet — saca " + sacaNum + " · " + nome + " salva aqui, sincroniza quando voltar");
+      drv.focus();
+      return;
+    }
     if (error) { dbError(error, "Não deu pra adicionar à fila"); return; }
     await rememberDriver(nome);
     filaForm.reset();
@@ -316,9 +418,12 @@
 
   /* ================= RENDER: QUEUE (Fila tab) ================= */
   async function fetchTodayFila() {
-    return fetchAll(function (from, to) {
+    if (estaOffline()) return filaComPendencias(cacheFilaGet());
+    var dados = await fetchAll(function (from, to) {
       return sb.from("fila").select("*").eq("dia", todayKey()).order("criado_em", { ascending: true }).range(from, to);
     });
+    cacheFilaSet(dados);
+    return filaPendGet().length ? filaComPendencias(dados) : dados;
   }
   function renderQueue() {
     var items = state.fila;
@@ -352,8 +457,21 @@
     if (delId) {
       var it = state.fila.find(function (f) { return f.id === delId; });
       if (!it) return;
+      if (String(delId).indexOf("pendente_") === 0) { toast("Essa entrada ainda não terminou de sincronizar — espera um instante."); return; }
       showConfirm('Remover "' + it.motorista + '" (saca ' + it.saca + ") da fila?", false, async function () {
-        var { error } = await sb.from("fila").delete().eq("id", delId);
+        if (estaOffline()) {
+          filaPendAdd("removerFila", { id: delId });
+          await renderAll();
+          toast("Sem internet — remoção salva, sincroniza quando voltar.");
+          return;
+        }
+        var { error } = await comTimeout(sb.from("fila").delete().eq("id", delId));
+        if (isNetworkError(error)) {
+          filaPendAdd("removerFila", { id: delId });
+          await renderAll();
+          toast("Sem internet — remoção salva, sincroniza quando voltar.");
+          return;
+        }
         if (error) { dbError(error); return; }
         await renderAll();
       });
@@ -363,13 +481,26 @@
     if (absentId) {
       var it2 = state.fila.find(function (f) { return f.id === absentId; });
       if (!it2) return;
+      if (String(absentId).indexOf("pendente_") === 0) { toast("Essa entrada ainda não terminou de sincronizar — espera um instante."); return; }
       showConfirm('Marcar "' + it2.motorista + '" como ausente? Ele sai da fila.', true, async function () {
-        var { error: delErr } = await sb.from("fila").delete().eq("id", absentId);
+        if (estaOffline()) {
+          filaPendAdd("ausente", { id: absentId, motorista: it2.motorista, dia: it2.dia, ts_fila: it2.criado_em });
+          await renderAll();
+          toast("Sem internet — " + it2.motorista + " marcado como ausente aqui, sincroniza quando voltar.");
+          return;
+        }
+        var { error: delErr } = await comTimeout(sb.from("fila").delete().eq("id", absentId));
+        if (isNetworkError(delErr)) {
+          filaPendAdd("ausente", { id: absentId, motorista: it2.motorista, dia: it2.dia, ts_fila: it2.criado_em });
+          await renderAll();
+          toast("Sem internet — " + it2.motorista + " marcado como ausente aqui, sincroniza quando voltar.");
+          return;
+        }
         if (delErr) { dbError(delErr); return; }
-        var { error: insErr } = await sb.from("registros").insert({
+        var { error: insErr } = await comTimeout(sb.from("registros").insert({
           motorista: it2.motorista, saca: null, status: "ausente", faltantes: [],
           dia: it2.dia, ts_fila: it2.criado_em, ts_resolvido: new Date().toISOString()
-        });
+        }));
         if (insErr) dbError(insErr);
         await renderAll();
         toast(it2.motorista + " marcado como ausente");
@@ -387,6 +518,7 @@
         return;
       }
       input.classList.remove("field-error");
+      if (String(setId).indexOf("pendente_") === 0) { toast("Essa entrada ainda não terminou de sincronizar — espera um instante."); return; }
       e.target.disabled = true;
       var conflict = await checkSacaConflict(sacaNum);
       e.target.disabled = false;
@@ -404,7 +536,19 @@
     }
   });
   async function saveSacaForFila(id, sacaNum) {
-    var { error } = await sb.from("fila").update({ saca: sacaNum }).eq("id", id);
+    if (estaOffline()) {
+      filaPendAdd("setSaca", { id: id, saca: sacaNum });
+      await renderAll();
+      toast("Sem internet — saca " + sacaNum + " salva aqui, sincroniza quando voltar.");
+      return;
+    }
+    var { error } = await comTimeout(sb.from("fila").update({ saca: sacaNum }).eq("id", id));
+    if (isNetworkError(error)) {
+      filaPendAdd("setSaca", { id: id, saca: sacaNum });
+      await renderAll();
+      toast("Sem internet — saca " + sacaNum + " salva aqui, sincroniza quando voltar.");
+      return;
+    }
     if (error) { dbError(error, "Não deu pra salvar a saca"); return; }
     await renderAll();
     toast("Saca " + sacaNum + " definida — pronta pra liberar");
@@ -444,18 +588,31 @@
     var id = row.dataset.id;
     var f = state.fila.find(function (x) { return x.id === id; });
     if (!f) return;
+    if (String(id).indexOf("pendente_") === 0) { toast("Essa entrada ainda não terminou de sincronizar — espera um instante."); return; }
     row.querySelectorAll(".rr-btn").forEach(function (b) { b.disabled = true; });
     await resolveEntry(f, act);
   });
 
   async function resolveEntry(f, status) {
-    var { error: delErr } = await sb.from("fila").delete().eq("id", f.id);
+    if (estaOffline()) {
+      filaPendAdd("resolver", { id: f.id, motorista: f.motorista, saca: f.saca, status: status, dia: f.dia, ts_fila: f.criado_em });
+      await renderAll();
+      toast("Sem internet — saca " + f.saca + " " + (status === "levou" ? "liberada" : "recusada") + " aqui, sincroniza quando voltar.");
+      return;
+    }
+    var { error: delErr } = await comTimeout(sb.from("fila").delete().eq("id", f.id));
+    if (isNetworkError(delErr)) {
+      filaPendAdd("resolver", { id: f.id, motorista: f.motorista, saca: f.saca, status: status, dia: f.dia, ts_fila: f.criado_em });
+      await renderAll();
+      toast("Sem internet — saca " + f.saca + " " + (status === "levou" ? "liberada" : "recusada") + " aqui, sincroniza quando voltar.");
+      return;
+    }
     if (delErr) { dbError(delErr); return; }
-    var { error: insErr } = await sb.from("registros").insert({
+    var { error: insErr } = await comTimeout(sb.from("registros").insert({
       motorista: f.motorista, saca: f.saca, status: status, faltantes: [],
       dia: f.dia, ts_fila: f.criado_em, ts_resolvido: new Date().toISOString()
-    });
-    if (insErr) { dbError(insErr, "Não deu pra registrar — a saca voltou pra fila"); await sb.from("fila").insert(f); await renderAll(); return; }
+    }));
+    if (insErr) { dbError(insErr, "Não deu pra registrar — a saca voltou pra fila"); await comTimeout(sb.from("fila").insert(f)); await renderAll(); return; }
     await renderAll();
     toast(status === "levou"
       ? "Saca " + f.saca + " liberada para " + f.motorista + " — confira os pacotes com ele"
@@ -541,7 +698,7 @@
       if (sacaNum === null || sacaNum < 1 || sacaNum > 999) { toast("Saca inválida (1 a 999)"); return; }
       var faltantes = (qtd > 0 || codigo) ? [{ qtd: qtd > 0 ? qtd : 1, codigo: "NX" + codigo }] : [];
       saveBtn.disabled = true;
-      var { error } = await sb.from("registros").update({ motorista: nome, saca: sacaNum, faltantes: faltantes }).eq("id", saveBtn.getAttribute("data-save"));
+      var { error } = await comTimeout(sb.from("registros").update({ motorista: nome, saca: sacaNum, faltantes: faltantes }).eq("id", saveBtn.getAttribute("data-save")));
       saveBtn.disabled = false;
       if (error) { dbError(error); return; }
       await renderAll();
@@ -552,7 +709,7 @@
     if (delBtn) {
       var delId = delBtn.getAttribute("data-del");
       showConfirm("Excluir este registro? A saca sai do histórico de hoje.", true, async function () {
-        var { error } = await sb.from("registros").delete().eq("id", delId);
+        var { error } = await comTimeout(sb.from("registros").delete().eq("id", delId));
         if (error) { dbError(error); return; }
         await renderAll();
       });
@@ -674,7 +831,7 @@
         }
       }
       saveBtn.disabled = true;
-      var { error } = await sb.from("registros").update(payload).eq("id", saveBtn.getAttribute("data-hist-save"));
+      var { error } = await comTimeout(sb.from("registros").update(payload).eq("id", saveBtn.getAttribute("data-hist-save")));
       saveBtn.disabled = false;
       if (error) { dbError(error); return; }
       await renderAll();
@@ -685,7 +842,7 @@
     if (delBtn) {
       var delId = delBtn.getAttribute("data-hist-del");
       showConfirm("Excluir este registro do histórico de hoje?", true, async function () {
-        var { error } = await sb.from("registros").delete().eq("id", delId);
+        var { error } = await comTimeout(sb.from("registros").delete().eq("id", delId));
         if (error) { dbError(error); return; }
         await renderAll();
       });
@@ -732,7 +889,19 @@
       var nome = names[i];
       if (existing.indexOf(nome.toLowerCase()) !== -1) { skipped++; continue; }
       await ensureDriverListed(nome);
-      var { error } = await sb.from("fila").insert({ motorista: nome, saca: null, dia: todayKey() });
+      if (estaOffline()) {
+        filaPendAdd("addToQueue", { motorista: nome, saca: null, dia: todayKey() });
+        existing.push(nome.toLowerCase());
+        added++;
+        continue;
+      }
+      var { error } = await comTimeout(sb.from("fila").insert({ motorista: nome, saca: null, dia: todayKey() }));
+      if (isNetworkError(error)) {
+        filaPendAdd("addToQueue", { motorista: nome, saca: null, dia: todayKey() });
+        existing.push(nome.toLowerCase());
+        added++;
+        continue;
+      }
       if (error) { dbError(error); continue; }
       existing.push(nome.toLowerCase());
       added++;
@@ -961,6 +1130,89 @@
     });
   })();
 
+  /* ================= OFFLINE: sincronizar fila pendente ================= */
+  var sincronizandoGS = false;
+  async function sincronizarFilaPendente() {
+    if (sincronizandoGS || estaOffline()) return { ok: 0, falhou: 0 };
+    sincronizandoGS = true;
+    var fila = filaPendGet();
+    var restante = [];
+    var ok = 0, falhou = 0;
+    for (var i = 0; i < fila.length; i++) {
+      var a = fila[i];
+      var falhouEsse = false;
+      try {
+        if (a.tipo === "addToQueue") {
+          var r1 = await comTimeout(sb.from("fila").insert({ motorista: a.payload.motorista, saca: a.payload.saca, dia: a.payload.dia }));
+          if (r1.error) falhouEsse = true;
+        } else if (a.tipo === "removerFila") {
+          var r2 = await comTimeout(sb.from("fila").delete().eq("id", a.payload.id));
+          if (r2.error) falhouEsse = true;
+        } else if (a.tipo === "setSaca") {
+          var r3 = await comTimeout(sb.from("fila").update({ saca: a.payload.saca }).eq("id", a.payload.id));
+          if (r3.error) falhouEsse = true;
+        } else if (a.tipo === "ausente") {
+          var r4 = await comTimeout(sb.from("fila").delete().eq("id", a.payload.id));
+          if (r4.error) { falhouEsse = true; }
+          else {
+            var r4b = await comTimeout(sb.from("registros").insert({
+              motorista: a.payload.motorista, saca: null, status: "ausente", faltantes: [],
+              dia: a.payload.dia, ts_fila: a.payload.ts_fila, ts_resolvido: a.criadoEm
+            }));
+            if (r4b.error) falhouEsse = true;
+          }
+        } else if (a.tipo === "resolver") {
+          await comTimeout(sb.from("fila").delete().eq("id", a.payload.id));
+          var r5b = await comTimeout(sb.from("registros").insert({
+            motorista: a.payload.motorista, saca: a.payload.saca, status: a.payload.status, faltantes: [],
+            dia: a.payload.dia, ts_fila: a.payload.ts_fila, ts_resolvido: a.criadoEm
+          }));
+          if (r5b.error) falhouEsse = true;
+        }
+      } catch (e) { falhouEsse = true; }
+      if (falhouEsse) { a.erro = "Falhou ao sincronizar"; restante.push(a); falhou++; }
+      else ok++;
+    }
+    filaPendSet(restante);
+    sincronizandoGS = false;
+    return { ok: ok, falhou: falhou };
+  }
+
+  function atualizarOfflineUI() {
+    var banner = document.getElementById("offlineBanner");
+    if (banner) banner.hidden = !estaOffline();
+    var n = contarPendentes();
+    var badge = document.getElementById("pendingBadge");
+    if (badge) {
+      if (n > 0) { badge.hidden = false; badge.textContent = n + " pendente" + (n === 1 ? "" : "s"); }
+      else badge.hidden = true;
+    }
+  }
+  window.addEventListener("online", atualizarOfflineUI);
+  window.addEventListener("offline", atualizarOfflineUI);
+  window.addEventListener("online", function () {
+    sincronizarFilaPendente().then(function (res) {
+      atualizarOfflineUI();
+      if (res.ok || res.falhou) {
+        toast(res.ok + " ação(ões) sincronizada(s)" + (res.falhou ? ", " + res.falhou + " falhou(aram)" : "") + ".");
+      }
+      if (state.session) renderAll();
+    });
+  });
+  (function () {
+    var badge = document.getElementById("pendingBadge");
+    if (badge) badge.addEventListener("click", async function () {
+      if (estaOffline()) { toast("Ainda sem internet — sincroniza sozinho assim que voltar."); return; }
+      badge.disabled = true;
+      var res = await sincronizarFilaPendente();
+      badge.disabled = false;
+      atualizarOfflineUI();
+      toast(res.ok + " ação(ões) sincronizada(s)" + (res.falhou ? ", " + res.falhou + " falhou(aram)" : "") + ".");
+      if (state.session) renderAll();
+    });
+  })();
+  atualizarOfflineUI();
+
   /* ================= INIT / POLLING ================= */
   async function renderAll() {
     var results = await Promise.all([fetchTodayFila(), fetchTodayLiberadas(), fetchTodayRecusadas(), fetchTodayAusentes()]);
@@ -985,9 +1237,27 @@
   }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
+  // supabase-js guarda a sessão validada em localStorage sob uma chave
+  // "...-auth-token" — ler direto daqui não depende de rede, então funciona
+  // mesmo se sb.auth.getSession() travar esperando um refresh que não
+  // consegue completar (sem internet de verdade).
+  function lerSessaoBrutaDoLocalStorage() {
+    try {
+      var chave = Object.keys(localStorage).filter(function (k) { return k.indexOf("-auth-token") !== -1; })[0];
+      if (!chave) return null;
+      return JSON.parse(localStorage.getItem(chave));
+    } catch (e) { return null; }
+  }
+
   (async function init() {
     await refreshMotoristasCache();
-    var { data } = await sb.auth.getSession();
+    var { data, error } = await comTimeout(sb.auth.getSession());
+    if (isNetworkError(error)) {
+      var bruta = lerSessaoBrutaDoLocalStorage();
+      if (bruta && bruta.user) { await loadProfileAndEnter(bruta.user); return; }
+      showLogin();
+      return;
+    }
     if (data && data.session && data.session.user) {
       await loadProfileAndEnter(data.session.user);
     } else {

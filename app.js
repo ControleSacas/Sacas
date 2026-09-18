@@ -798,7 +798,7 @@
     btn.disabled = true; btn.textContent = "Gerando…";
     var ateExclusivo = (function () { var d = new Date(ate + "T00:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
     var all = await fetchAll(function (from, to) {
-      return sb.from("registros").select("motorista,dia,saca,status,ts_resolvido")
+      return sb.from("registros").select("motorista,dia,saca,status,ts_resolvido,faltantes")
         .gte("dia", de).lt("dia", ateExclusivo).order("dia", { ascending: true }).range(from, to);
     });
     btn.disabled = false; btn.textContent = original;
@@ -806,12 +806,16 @@
     var STATUS_PT = { levou: "Levou", recusou: "Recusou", ausente: "Ausente" };
     var linhas = all.map(function (r) {
       var p = r.dia.split("-");
+      var faltou = r.faltantes && r.faltantes.length
+        ? r.faltantes.map(function (f) { return f.codigo + " x" + f.qtd; }).join(", ")
+        : "";
       return {
         Data: p[2] + "/" + p[1] + "/" + p[0],
         Motorista: r.motorista,
         Saca: r.saca || "",
         Status: STATUS_PT[r.status] || r.status,
-        Horário: fmtTime(r.ts_resolvido)
+        Horário: fmtTime(r.ts_resolvido),
+        "Faltou": faltou
       };
     });
     var ws = XLSX.utils.json_to_sheet(linhas);
